@@ -11,11 +11,14 @@
 ### Цели MVP
 - Аутентификация (email + Google OAuth)
 - Каталог упражнений + добавление пользовательских
+- Detail-экран упражнения (описание, техника, исторический факт)
 - Запись подходов (вес × повторы) во время тренировки
-- Конструктор недельного плана (понедельник–воскресенье)
+- Категории повторений на каждое упражнение в плане: **силовая 5–8**, **классика 8–12**, **новичок 12–15**
+- Конструктор недельного плана (ПН–ВС) с подсчётом **недельного объёма по группам мышц** (4–10 подходов в неделю на группу)
 - Экран «Сегодня» — что нужно сделать по плану на текущий день
 - Прогресс по дням и по упражнениям (графики + шкала засечек)
-- Локальный алгоритм прогрессивной перегрузки — подсказка целевого веса
+- **Двойная прогрессия** (повторы → вес): локальный алгоритм подсказывает целевой вес и число повторов
+- Контроль «технического отказа на первом подходе» + tolerance ±3 повтора для последующих подходов
 - Таймер отдыха между подходами
 - PWA (установка на главный экран, офлайн-запись подходов)
 - Mobile-first дизайн в стиле Apple Fitness (тёмные тона, акценты)
@@ -129,15 +132,27 @@ profiles (
 );
 
 -- Упражнения. Системные (is_system=true) — общие для всех. Пользовательские — на конкретного юзера.
+-- muscle_groups — массив, потому что компаунды задействуют несколько групп
+-- (жим лёжа = ['chest','triceps'], подтягивания = ['back','biceps']).
+-- Для подсчёта недельного объёма каждый подход начисляется на ВСЕ группы из массива.
 exercises (
-  id            UUID PRIMARY KEY,
-  user_id       UUID REFERENCES auth.users(id),  -- NULL для системных
-  name          TEXT NOT NULL,
-  muscle_group  TEXT NOT NULL,                   -- 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core' | 'cardio'
-  increment_kg  NUMERIC(4,2) DEFAULT 2.5,        -- шаг прогрессии
-  is_system     BOOLEAN DEFAULT FALSE,
-  created_at    TIMESTAMPTZ DEFAULT now()
+  id                UUID PRIMARY KEY,
+  user_id           UUID REFERENCES auth.users(id),  -- NULL для системных
+  name              TEXT NOT NULL,
+  muscle_groups     TEXT[] NOT NULL,                  -- ['chest'] | ['back','biceps'] | ...
+  increment_kg      NUMERIC(4,2) DEFAULT 2.5,         -- шаг прогрессии веса
+  description       TEXT,                             -- для detail-экрана
+  technique_tips    TEXT[],                           -- список советов по технике
+  historical_fact   TEXT,                             -- интересный факт / история
+  is_system         BOOLEAN DEFAULT FALSE,
+  created_at        TIMESTAMPTZ DEFAULT now()
 );
+
+-- Канонический список групп мышц (не отдельная таблица — enum-значения):
+-- 'chest' (грудь), 'back' (спина), 'shoulders' (плечи),
+-- 'biceps' (бицепс), 'triceps' (трицепс), 'forearms' (предплечья),
+-- 'quads' (квадрицепс), 'hamstrings' (бицепс бедра), 'glutes' (ягодицы), 'calves' (икры),
+-- 'abs' (пресс), 'cardio' (кардио, объём не считается)
 
 -- Недельный план. Можно иметь несколько планов, но активен один.
 workout_plans (
@@ -157,14 +172,15 @@ plan_days (
   order_idx   SMALLINT NOT NULL
 );
 
--- Упражнения внутри дня плана
+-- Упражнения внутри дня плана.
+-- target_reps и target_weight НЕ хранятся: они вычисляются алгоритмом двойной прогрессии
+-- из истории подходов (sets) при подходе к тренировке.
 plan_exercises (
   id            UUID PRIMARY KEY,
   plan_day_id   UUID NOT NULL REFERENCES plan_days(id) ON DELETE CASCADE,
   exercise_id   UUID NOT NULL REFERENCES exercises(id),
-  target_sets   SMALLINT NOT NULL,
-  target_reps   SMALLINT NOT NULL,
-  target_weight NUMERIC(5,2),    -- может быть NULL — алгоритм подскажет
+  rep_category  TEXT NOT NULL CHECK (rep_category IN ('strength','classic','beginner')),
+  target_sets   SMALLINT NOT NULL CHECK (target_sets BETWEEN 1 AND 10),
   order_idx     SMALLINT NOT NULL
 );
 
@@ -179,14 +195,21 @@ sessions (
   notes         TEXT
 );
 
--- Подходы — самая частотная таблица
+-- Подходы — самая частотная таблица.
+-- target_reps — снимок цели на момент выполнения (для первого подхода это критичное значение,
+-- от которого зависит решение алгоритма «расти повторами / расти весом / держать»).
+-- is_first_set — маркер первого подхода в упражнении внутри сессии (он обязан достигать
+-- технического отказа на target_reps; последующие подходы валидны при reps >= first.reps - 3).
 sets (
   id            UUID PRIMARY KEY,
   session_id    UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   exercise_id   UUID NOT NULL REFERENCES exercises(id),
   weight_kg     NUMERIC(5,2) NOT NULL CHECK (weight_kg >= 0),
   reps          SMALLINT NOT NULL CHECK (reps BETWEEN 0 AND 999),
-  rpe           SMALLINT CHECK (rpe BETWEEN 1 AND 10),  -- опционально
+  target_reps   SMALLINT NOT NULL,                          -- цель на момент подхода
+  is_first_set  BOOLEAN NOT NULL DEFAULT FALSE,             -- первый подход в упражнении
+  reached_failure BOOLEAN,                                  -- пользователь отметил отказ (кнопка)
+  rpe           SMALLINT CHECK (rpe BETWEEN 1 AND 10),      -- опционально
   set_order     SMALLINT NOT NULL,
   completed_at  TIMESTAMPTZ DEFAULT now()
 );
@@ -199,7 +222,7 @@ CREATE INDEX idx_sets_user_exercise_time
 -- Для exercises: WHERE user_id = auth.uid() OR is_system = TRUE
 ```
 
-Системные упражнения сидируются миграцией: жим лёжа, присед со штангой, становая тяга, жим стоя, тяга в наклоне, подтягивания, отжимания на брусьях и ещё ~20 базовых.
+Системные упражнения сидируются миграцией (~25 базовых: жим лёжа, присед со штангой, становая тяга, жим стоя, тяга в наклоне, подтягивания, отжимания на брусьях, сгибания на бицепс, разгибания на трицепс и т.д.). Каждое идёт с заполненными `muscle_groups`, `description`, `technique_tips` и `historical_fact` для отображения в `<ExerciseDetail>`. Тексты живут в `supabase/seed.sql`, выносятся в i18n-friendly формате (ключи в БД, локализация — отдельным шагом).
 
 ---
 
@@ -210,10 +233,11 @@ CREATE INDEX idx_sets_user_exercise_time
 | `/login` | Авторизация | Email + пароль, кнопка Google |
 | `/onboarding` | Первый запуск | Имя, цель, выбор стартового плана (3 пресета) |
 | `/` | Сегодня | Карточка тренировки на сегодня → список упражнений → тап → SetLogger |
-| `/plan` | План | Недельный таймлайн ПН-ВС, тап по дню → редактор |
-| `/plan/edit/[dayId]` | Редактор дня | Добавить/убрать упражнения, задать целевые сеты/повторы |
+| `/plan` | План | Недельный таймлайн ПН-ВС + панель «Объём за неделю по группам мышц» (зелёный 4–10, серый <4, оранжевый >10). Тап по дню → редактор |
+| `/plan/edit/[dayId]` | Редактор дня | Добавить упражнение → выбрать категорию повторений (силовая 5-8 / классика 8-12 / новичок 12-15) → задать число подходов |
 | `/exercises` | Тренажёры | Каталог + поиск + фильтр по мышечной группе |
-| `/exercises/new` | Создание упражнения | Форма: название, группа, шаг прогрессии |
+| `/exercises/[id]` | Detail-экран | Описание, мышцы, техника, исторический факт + кнопка «Добавить в план» |
+| `/exercises/new` | Создание упражнения | Форма: название, группы мышц (мульти), шаг прогрессии, описание |
 | `/progress` | Прогресс | Календарь активности + список упражнений |
 | `/progress/[exerciseId]` | Детальный прогресс | График веса × времени + шкала с засечками |
 | `/profile` | Профиль | Имя, аватар, цель, экспорт CSV, выход |
@@ -226,9 +250,13 @@ CREATE INDEX idx_sets_user_exercise_time
 
 ### `<SetLogger>`
 Главный компонент взаимодействия. Используется на экране «Сегодня» и в свободной тренировке.
+- Заголовок: имя упражнения + бейдж категории (силовая / классика / новичок) с диапазоном
+- Карточка `<SuggestedTarget>` сверху (подсказка алгоритма)
 - Степпер веса: −/+ кнопки с шагом 0.5 / 1 / 2.5 кг (выбирается тапом)
-- Степпер повторов: −/+ кнопки 1
+- Степпер повторов: −/+ кнопки 1, заранее выставлен на `target_reps` из подсказки
+- Тоггл «До отказа» для первого подхода — обязательный к нажатию (визуально подсвечен зелёным)
 - Большая зелёная кнопка «Записать подход»
+- Подсветка минимума для подходов 2+: «Минимум: N повт.» (target первого подхода − 3); если пользователь вводит меньше — мягкое предупреждение «Падение >3 повт. — возможно, рабочий вес слишком велик», но запись разрешается
 - После записи — `<RestTimer>` стартует автоматически
 - Optimistic update: подход появляется в списке мгновенно, синхронизируется на сервер фоном
 
@@ -257,75 +285,184 @@ CREATE INDEX idx_sets_user_exercise_time
 - Tooltip при наведении показывает дату, вес, число повторов
 
 ### `<SuggestedTarget>`
-Карточка над `<SetLogger>` с подсказкой алгоритма прогрессии.
-- «В прошлый раз: 12.5 кг × 10 повт.»
-- «Цель сегодня: **14 кг × 10 повт.**» (зелёный, если есть прирост)
+Карточка над `<SetLogger>` с подсказкой алгоритма двойной прогрессии.
+- Строка 1: «В прошлый раз: **12.5 кг × 12 повт.**» (как было)
+- Строка 2: «Сегодня: **12.5 кг × 13 повт.**» (новая цель — выделена зелёным/малиновым)
+- Подпись reasoning: «+1 повторение» / «+2.5 кг, повторы → 12» / «Тот же вес — добей до 12 повт.» / «Деделоад после перерыва»
+- Категория и диапазон визуально подсвечены сверху: «Классика 8–12»
+
+### `<ExerciseDetail>`
+Карточка / экран с подробной информацией об упражнении (открывается тапом из каталога).
+- Hero-блок: имя крупно, бейджи задействованных групп мышц
+- Секция «Описание» — параграф основного описания
+- Секция «Техника» — пронумерованный список советов из `technique_tips`
+- Секция «История» — `historical_fact` (заметный блок с цитатой)
+- Кнопка снизу «Добавить в план» → выбор дня плана и категории повторений
+- Анимация появления секций по скроллу (Framer Motion `whileInView`)
+
+### `<WeeklyVolumePanel>`
+Панель внизу экрана `/plan` с подсчётом подходов на каждую группу мышц за неделю.
+- Список групп с числом: «Грудь — 6», «Спина — 4», «Бицепс — 3»…
+- Цветовая индикация:
+  - **Зелёный** (4–10) — рабочий диапазон, оптимально
+  - **Серый** (<4) — недостаточный объём для прогресса
+  - **Оранжевый** (>10) — высокий объём, риск перетренированности
+- Tap по группе → раскрывается список упражнений в плане, бьющих по этой группе
 
 ### `<BottomNav>`
 Фиксированный таб-бар с 5 иконками. Скрывается при скролле вниз, появляется при скролле вверх (как на iOS).
 
 ---
 
-## 8. Локальный алгоритм прогрессии
+## 8. Алгоритм двойной прогрессии
 
 Файл: `lib/progression.ts`
 
+**Идея.** В рамках выбранной категории повторений (силовая 5–8 / классика 8–12 / новичок 12–15) пользователь сначала растёт **повторами** до верхней границы, затем добавляет **вес** и возвращается к нижней границе. Решение принимается по результату **первого подхода** — он должен достигать технического отказа на текущем `target_reps`.
+
 ```typescript
-type SetHistory = {
+export type RepCategory = 'strength' | 'classic' | 'beginner';
+
+export const REP_RANGES: Record<RepCategory, { low: number; high: number }> = {
+  strength: { low: 5,  high: 8  },
+  classic:  { low: 8,  high: 12 },
+  beginner: { low: 12, high: 15 },
+};
+
+export type FirstSetHistory = {
   weight_kg: number;
   reps: number;
   target_reps: number;
+  reached_failure: boolean | null;
   completed_at: Date;
 };
 
-type Suggestion = {
+export type Suggestion = {
   weight_kg: number;
-  reps: number;
-  reasoning: 'first_time' | 'progress' | 'hold' | 'deload';
-};
+  target_reps: number;          // цель ПЕРВОГО подхода
+  min_reps_followups: number;   // минимум для подходов 2+ (target − 3)
+  reasoning:
+    | 'first_time'      // упражнение делается впервые — пусть пользователь сам подберёт
+    | 'reps_up'         // выбил повторения, +1 повтор к цели
+    | 'weight_up'       // выбил верх диапазона, +вес и сброс к low
+    | 'hold'            // не выбил — повторяем тот же вес и target_reps
+    | 'deload';         // перерыв > 14 дней — −10% вес, цель = low
 
 export function suggestNext(
-  history: SetHistory[],
+  history: FirstSetHistory[],   // только первые подходы из последних сессий, по убыванию даты
+  category: RepCategory,
   exerciseIncrement: number = 2.5,
 ): Suggestion {
-  const last = lastSession(history);  // подходы последней тренировки
+  const { low, high } = REP_RANGES[category];
 
-  // Первый раз — отдаём заглушку, пользователь введёт сам
-  if (!last || last.length === 0) {
-    return { weight_kg: 0, reps: 0, reasoning: 'first_time' };
+  // Первый раз для этого упражнения
+  if (history.length === 0) {
+    return {
+      weight_kg: 0,
+      target_reps: low,
+      min_reps_followups: Math.max(1, low - 3),
+      reasoning: 'first_time',
+    };
   }
 
-  const hitAllReps = last.every(s => s.reps >= s.target_reps);
-  const daysSince = daysBetween(last[0].completed_at, new Date());
+  const last = history[0];
+  const daysSince = daysBetween(last.completed_at, new Date());
 
-  // Перерыв > 14 дней — деделоад: −10%
+  // Деделоад при долгом перерыве
   if (daysSince > 14) {
     return {
-      weight_kg: round(last[0].weight_kg * 0.9, 0.5),
-      reps: last[0].target_reps,
+      weight_kg: roundToHalfKg(last.weight_kg * 0.9),
+      target_reps: low,
+      min_reps_followups: Math.max(1, low - 3),
       reasoning: 'deload',
     };
   }
 
-  // Свежо и выбил все повторы — добавляем шаг
-  if (hitAllReps && daysSince <= 7) {
+  // Не дотянул до цели на первом подходе — повторяем
+  if (last.reps < last.target_reps) {
     return {
-      weight_kg: last[0].weight_kg + exerciseIncrement,
-      reps: last[0].target_reps,
-      reasoning: 'progress',
+      weight_kg: last.weight_kg,
+      target_reps: last.target_reps,
+      min_reps_followups: Math.max(1, last.target_reps - 3),
+      reasoning: 'hold',
     };
   }
 
-  // Не выбил повторы или прошло > 7 дней — повторяем
+  // Выбил верхнюю границу — добавляем вес, цель = low
+  if (last.target_reps >= high) {
+    return {
+      weight_kg: last.weight_kg + exerciseIncrement,
+      target_reps: low,
+      min_reps_followups: Math.max(1, low - 3),
+      reasoning: 'weight_up',
+    };
+  }
+
+  // Выбил текущую цель внутри диапазона — добавляем повторение
   return {
-    weight_kg: last[0].weight_kg,
-    reps: last[0].target_reps,
-    reasoning: 'hold',
+    weight_kg: last.weight_kg,
+    target_reps: last.target_reps + 1,
+    min_reps_followups: Math.max(1, last.target_reps + 1 - 3),
+    reasoning: 'reps_up',
   };
 }
 ```
 
-`exerciseIncrement` берётся из `exercises.increment_kg` (по умолчанию 2.5 кг для штанговых, 1 кг для гантельных). Это самый ответственный кусок логики — покрывается юнит-тестами.
+**Валидация подходов в рамках сессии (отдельная функция):**
+
+```typescript
+export function validateFollowupSet(firstSetReps: number, currentReps: number): {
+  ok: boolean;
+  warning?: string;
+} {
+  if (currentReps >= firstSetReps - 3) return { ok: true };
+  return {
+    ok: true,    // не блокируем, только предупреждаем
+    warning: 'Падение более чем на 3 повторения от первого подхода — возможно, рабочий вес слишком велик.',
+  };
+}
+```
+
+`exerciseIncrement` берётся из `exercises.increment_kg` (по умолчанию 2.5 кг для штанговых, 1 кг для гантельных). Это самый ответственный кусок логики — покрывается юнит-тестами для всех веток reasoning и крайних случаев (выход из диапазона, граничные дни перерыва).
+
+---
+
+## 8.1. Подсчёт недельного объёма по группам мышц
+
+Файл: `lib/volume.ts`
+
+```typescript
+export type MuscleGroup =
+  | 'chest' | 'back' | 'shoulders'
+  | 'biceps' | 'triceps' | 'forearms'
+  | 'quads' | 'hamstrings' | 'glutes' | 'calves'
+  | 'abs' | 'cardio';
+
+export type VolumeStatus = 'under' | 'optimal' | 'over';
+
+export function computeWeeklyVolume(
+  planDays: { exercises: { exercise: { muscle_groups: MuscleGroup[] }; target_sets: number }[] }[],
+): Record<MuscleGroup, number> {
+  const totals = {} as Record<MuscleGroup, number>;
+  for (const day of planDays) {
+    for (const pe of day.exercises) {
+      for (const muscle of pe.exercise.muscle_groups) {
+        totals[muscle] = (totals[muscle] ?? 0) + pe.target_sets;
+      }
+    }
+  }
+  return totals;
+}
+
+export function statusFor(group: MuscleGroup, sets: number): VolumeStatus {
+  if (group === 'cardio') return 'optimal';   // для кардио объём не считается
+  if (sets < 4)  return 'under';
+  if (sets > 10) return 'over';
+  return 'optimal';
+}
+```
+
+Каждый подход на упражнение со списком групп мышц `['chest','triceps']` начисляет +1 в `chest` и +1 в `triceps`. `<WeeklyVolumePanel>` использует `statusFor` для цветовой индикации.
 
 ---
 
@@ -334,6 +471,8 @@ export function suggestNext(
 - **Server actions** валидируют вход через Zod (`weight_kg >= 0`, `reps 1..999`, обязательные поля). Ошибка → возврат `{ error: string }` → тост.
 - **Auth** — middleware проверяет сессию на защищённых маршрутах, редирект на `/login` при истечении.
 - **RLS** — все таблицы под политиками. Если запрос приходит без авторизации — Postgres сам вернёт пустой результат.
+- **Tolerance-предупреждение** — при записи подхода 2+ с `reps < first_set.reps - 3` показывается некритичное предупреждение, но запись разрешается (`validateFollowupSet`).
+- **Объём вне диапазона** — в плане-редакторе панель `<WeeklyVolumePanel>` показывает оранжевый/серый цвет, но не блокирует сохранение (методология — рекомендация, не правило).
 - **Офлайн-запись подхода** — Service Worker через Background Sync API кладёт подход в очередь IndexedDB и синхронизирует при появлении сети. UI рендерит подход сразу с пометкой «синхронизация…».
 - **Toast-уведомления** через `sonner`: «✓ Подход записан» / «⚠ Не удалось сохранить, попробую ещё раз».
 
@@ -343,11 +482,15 @@ export function suggestNext(
 
 | Тип | Инструмент | Что покрываем |
 |---|---|---|
-| Unit | Vitest | `progression.ts` — все ветки алгоритма (первый раз, прогресс, hold, deload, разные шаги) |
-| Unit | Vitest | Утилиты дат, расчётов (например, totalVolume) |
-| Component | Vitest + Testing Library | `<SetLogger>` — степперы, валидация, отправка |
+| Unit | Vitest | `progression.ts` — все ветки reasoning (`first_time`, `reps_up`, `weight_up`, `hold`, `deload`) для всех 3 категорий, граничные дни перерыва, разные `increment_kg` |
+| Unit | Vitest | `validateFollowupSet` — точная граница `first - 3`, `first - 4` (warning), нулевые повторы |
+| Unit | Vitest | `volume.ts` — компаунды бьют по нескольким группам, статусы `under/optimal/over`, кардио |
+| Unit | Vitest | Утилиты дат |
+| Component | Vitest + Testing Library | `<SetLogger>` — степперы, тоггл «До отказа», валидация подходов 2+, отправка |
+| Component | Vitest + Testing Library | `<WeeklyVolumePanel>` — корректные итоги и цвета по группам |
 | E2E | Playwright | «Логин → записать тренировку → увидеть в прогрессе» |
 | E2E | Playwright | «Создать план → дойти до экрана Сегодня → пройти тренировку» |
+| E2E | Playwright | «Открыть detail упражнения → добавить в план → увидеть в `<WeeklyVolumePanel>`» |
 | Integration | Supabase локально | Миграции, RLS политики (нельзя прочитать чужие данные) |
 
 ---
@@ -366,6 +509,7 @@ gym-app/
 │   │   ├── plan/page.tsx
 │   │   ├── plan/edit/[dayId]/page.tsx
 │   │   ├── exercises/page.tsx
+│   │   ├── exercises/[id]/page.tsx
 │   │   ├── exercises/new/page.tsx
 │   │   ├── progress/page.tsx
 │   │   ├── progress/[exerciseId]/page.tsx
@@ -382,7 +526,11 @@ gym-app/
 │   │   └── SuggestedTarget.tsx
 │   ├── plan/
 │   │   ├── WeekTimeline.tsx
-│   │   └── DayEditor.tsx
+│   │   ├── DayEditor.tsx
+│   │   └── WeeklyVolumePanel.tsx
+│   ├── exercises/
+│   │   ├── ExerciseDetail.tsx
+│   │   └── ExerciseCatalog.tsx
 │   └── progress/
 │       ├── ProgressScale.tsx
 │       ├── ProgressChart.tsx
@@ -392,7 +540,8 @@ gym-app/
 │   │   ├── client.ts               # browser client
 │   │   ├── server.ts               # server client
 │   │   └── middleware.ts
-│   ├── progression.ts
+│   ├── progression.ts              # двойная прогрессия + validateFollowupSet
+│   ├── volume.ts                   # подсчёт недельного объёма
 │   ├── pwa/sw.ts
 │   └── utils.ts
 ├── server/                         # server actions
@@ -421,16 +570,16 @@ gym-app/
 ## 12. Этапы реализации (превью — детальный план будет отдельным документом)
 
 1. Каркас Next.js + Tailwind + базовые UI-примитивы и темная тема
-2. Supabase: миграции, RLS, seed системных упражнений, генерация типов
+2. Supabase: миграции (с `muscle_groups TEXT[]`, `rep_category` enum, `is_first_set`), RLS, seed системных упражнений с описаниями/техникой/историческими фактами, генерация типов
 3. Аутентификация (login/callback/middleware)
-4. Каталог упражнений + добавление пользовательских
-5. Конструктор недельного плана (WeekTimeline + редактор дня)
-6. Экран «Сегодня» + SetLogger + RestTimer
-7. Алгоритм прогрессии + SuggestedTarget
-8. Прогресс: календарь активности + ProgressChart + ProgressScale
-9. Профиль + экспорт
-10. PWA: manifest, service worker, офлайн-очередь
-11. E2E-тесты, полировка анимаций, деплой на Vercel
+4. Каталог упражнений + добавление пользовательских + **detail-экран `<ExerciseDetail>`**
+5. Конструктор недельного плана: `<WeekTimeline>` + редактор дня с выбором категории повторений + **`<WeeklyVolumePanel>`** (объём по группам мышц)
+6. Алгоритм двойной прогрессии (`lib/progression.ts`) + `<SuggestedTarget>` с reasoning
+7. Экран «Сегодня» + `<SetLogger>` (с тогглом «До отказа», валидацией tolerance) + `<RestTimer>`
+8. Прогресс: календарь активности + `<ProgressChart>` + `<ProgressScale>`
+9. Профиль + экспорт CSV
+10. PWA: manifest, service worker, офлайн-очередь подходов через Background Sync
+11. E2E-тесты, полировка анимаций (Framer Motion), деплой на Vercel
 
 Каждый этап — отдельная PR-ветка. Детали — в плане реализации.
 
