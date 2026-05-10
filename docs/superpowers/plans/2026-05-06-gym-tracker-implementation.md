@@ -3577,12 +3577,21 @@ const startOfDay = (d: Date) => {
 
 export type ExerciseHistory = Record<string, SetHistoryEntry[]>;
 
+export type LoggedSet = {
+  weight_kg: number;
+  reps: number;
+  target_reps: number;
+  is_first_set: boolean;
+  reached_failure: boolean | null;
+  set_order: number;
+};
+
 export type TodayContext = {
   day: PlanDay | null;
   planName: string | null;
   sessionId: string | null;
   history: ExerciseHistory;
-  loggedToday: Record<string, SetHistoryEntry[]>;
+  loggedToday: Record<string, LoggedSet[]>;
 };
 
 export async function getTodayContext(now = new Date()): Promise<TodayContext> {
@@ -3596,11 +3605,13 @@ export async function getTodayContext(now = new Date()): Promise<TodayContext> {
 
   const exerciseIds = day.exercises.map((e) => e.exercise_id);
 
+  // Алгоритм suggestNext принимает только первые подходы в DESC по времени.
   const { data: history } = exerciseIds.length
     ? await supabase
         .from('sets')
-        .select('exercise_id, weight_kg, reps, target_reps, is_first_set, reached_failure, completed_at')
+        .select('exercise_id, weight_kg, reps, target_reps, reached_failure, completed_at')
         .in('exercise_id', exerciseIds)
+        .eq('is_first_set', true)
         .order('completed_at', { ascending: false })
         .limit(200)
     : { data: [] };
@@ -3612,7 +3623,6 @@ export async function getTodayContext(now = new Date()): Promise<TodayContext> {
       weight_kg: row.weight_kg,
       reps: row.reps,
       target_reps: row.target_reps,
-      is_first_set: row.is_first_set,
       reached_failure: row.reached_failure,
       completed_at: new Date(row.completed_at),
     });
@@ -3626,11 +3636,11 @@ export async function getTodayContext(now = new Date()): Promise<TodayContext> {
     .gte('started_at', todayStart)
     .maybeSingle();
 
-  const loggedToday: Record<string, SetHistoryEntry[]> = {};
+  const loggedToday: Record<string, LoggedSet[]> = {};
   if (session) {
     const { data: todaySets } = await supabase
       .from('sets')
-      .select('exercise_id, weight_kg, reps, target_reps, is_first_set, reached_failure, set_order, completed_at')
+      .select('exercise_id, weight_kg, reps, target_reps, is_first_set, reached_failure, set_order')
       .eq('session_id', session.id)
       .order('set_order');
     for (const row of todaySets ?? []) {
@@ -3640,7 +3650,7 @@ export async function getTodayContext(now = new Date()): Promise<TodayContext> {
         target_reps: row.target_reps,
         is_first_set: row.is_first_set,
         reached_failure: row.reached_failure,
-        completed_at: new Date(row.completed_at),
+        set_order: row.set_order,
       });
     }
   }
@@ -4028,6 +4038,7 @@ import { Stepper } from '@/components/ui/Stepper';
 import { Button } from '@/components/ui/Button';
 import { SuggestedTarget } from './SuggestedTarget';
 import { suggestNext, validateFollowupSet, type RepCategory, type SetHistoryEntry } from '@/lib/progression';
+import type { LoggedSet } from '@/lib/queries/today';
 import { logSet, deleteSet } from '@/server/sessions';
 import { toast } from 'sonner';
 
@@ -4039,7 +4050,7 @@ type Props = {
   targetSets: number;
   incrementKg: number;
   history: SetHistoryEntry[];
-  loggedToday: SetHistoryEntry[];
+  loggedToday: LoggedSet[];
   onLogged: () => void;
   onRest: () => void;
 };
@@ -4283,6 +4294,7 @@ import { RestTimer } from '@/components/today/RestTimer';
 import { useRestTimer } from '@/hooks/useRestTimer';
 import { WEEKDAY_LABELS, type PlanDay } from '@/lib/types/plan';
 import type { SetHistoryEntry } from '@/lib/progression';
+import type { LoggedSet } from '@/lib/queries/today';
 
 const REST_BY_CATEGORY = { strength: 180, classic: 120, beginner: 90 } as const;
 
@@ -4298,7 +4310,7 @@ export function TodayShell({
   day: PlanDay;
   planName: string;
   history: Record<string, SetHistoryEntry[]>;
-  loggedToday: Record<string, SetHistoryEntry[]>;
+  loggedToday: Record<string, LoggedSet[]>;
   increments: Record<string, number>;
 }) {
   const router = useRouter();
