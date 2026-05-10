@@ -6,7 +6,7 @@ export const REP_RANGES: Record<RepCategory, { low: number; high: number }> = {
   beginner: { low: 12, high: 15 },
 };
 
-export type FirstSetHistory = {
+export type SetHistoryEntry = {
   weight_kg: number;
   reps: number;
   target_reps: number;
@@ -41,7 +41,7 @@ function followupMin(target: number): number {
 }
 
 export function suggestNext(
-  history: FirstSetHistory[],
+  history: SetHistoryEntry[],
   category: RepCategory,
   exerciseIncrement: number = 2.5,
   now: Date = new Date(),

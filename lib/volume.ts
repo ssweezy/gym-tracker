@@ -32,18 +32,18 @@ export type VolumeStatus = 'under' | 'optimal' | 'over';
 const OPTIMAL_LOW = 4;
 const OPTIMAL_HIGH = 10;
 
-export type PlanExercise = {
+type VolumeExercise = {
   exercise: { muscle_groups: MuscleGroup[] };
   target_sets: number;
 };
 
-export type PlanDay = {
+type VolumeDay = {
   is_rest?: boolean;
-  exercises: PlanExercise[];
+  exercises: VolumeExercise[];
 };
 
 export function computeWeeklyVolume(
-  planDays: PlanDay[],
+  planDays: VolumeDay[],
 ): Partial<Record<MuscleGroup, number>> {
   const totals: Partial<Record<MuscleGroup, number>> = {};
   for (const day of planDays) {
