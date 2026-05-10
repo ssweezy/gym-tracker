@@ -682,11 +682,12 @@ npx supabase migration new init_schema
 ```sql
 -- profiles
 create table public.profiles (
-  id          uuid primary key references auth.users(id) on delete cascade,
-  name        text not null,
-  avatar_url  text,
-  goal        text,
-  created_at  timestamptz default now()
+  id              uuid primary key references auth.users(id) on delete cascade,
+  display_name    text not null default 'Спортсмен',
+  bodyweight_kg   numeric(5,2),
+  unit_system     text not null default 'metric' check (unit_system in ('metric', 'imperial')),
+  goal            text,
+  created_at      timestamptz default now()
 );
 
 -- exercises (system + custom)
@@ -705,25 +706,24 @@ create table public.exercises (
 create index idx_exercises_user on public.exercises(user_id) where user_id is not null;
 create index idx_exercises_muscle on public.exercises using gin(muscle_groups);
 
--- workout_plans
-create table public.workout_plans (
+-- plans
+create table public.plans (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   name        text not null,
   is_active   boolean default false,
   created_at  timestamptz default now()
 );
-create unique index idx_plans_one_active per user_id where is_active;
--- Postgres syntax: partial unique index
 create unique index idx_plans_one_active_per_user
-  on public.workout_plans(user_id) where is_active;
+  on public.plans(user_id) where is_active;
 
 -- plan_days
 create table public.plan_days (
   id          uuid primary key default gen_random_uuid(),
-  plan_id     uuid not null references public.workout_plans(id) on delete cascade,
+  plan_id     uuid not null references public.plans(id) on delete cascade,
   weekday     smallint not null check (weekday between 1 and 7),
-  name        text,
+  title       text,
+  is_rest     boolean not null default false,
   order_idx   smallint not null default 0
 );
 
@@ -742,12 +742,11 @@ create table public.sessions (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users(id) on delete cascade,
   plan_day_id   uuid references public.plan_days(id) on delete set null,
-  date          date not null,
-  started_at    timestamptz default now(),
+  started_at    timestamptz not null default now(),
   finished_at   timestamptz,
   notes         text
 );
-create index idx_sessions_user_date on public.sessions(user_id, date desc);
+create index idx_sessions_user_started on public.sessions(user_id, started_at desc);
 
 -- sets
 create table public.sets (
@@ -767,8 +766,6 @@ create index idx_sets_user_exercise_time on public.sets(exercise_id, completed_a
 create index idx_sets_session on public.sets(session_id);
 ```
 
-**Внимание:** замени неверный синтаксис `idx_plans_one_active per user_id` (это была опечатка) — оставь только `create unique index idx_plans_one_active_per_user on public.workout_plans(user_id) where is_active;`. Удали строку с `per user_id`.
-
 - [ ] **Step 3: Применить миграцию локально**
 
 ```bash
@@ -781,7 +778,7 @@ npx supabase db reset
 ```bash
 npx supabase db dump --local --data-only=false | grep -E '^create table'
 ```
-Expected: видны 7 таблиц (profiles, exercises, workout_plans, plan_days, plan_exercises, sessions, sets).
+Expected: видны 7 таблиц (profiles, exercises, plans, plan_days, plan_exercises, sessions, sets).
 
 - [ ] **Step 5: Commit**
 
@@ -809,7 +806,7 @@ npx supabase migration new rls_policies
 -- Enable RLS на всех пользовательских таблицах
 alter table public.profiles enable row level security;
 alter table public.exercises enable row level security;
-alter table public.workout_plans enable row level security;
+alter table public.plans enable row level security;
 alter table public.plan_days enable row level security;
 alter table public.plan_exercises enable row level security;
 alter table public.sessions enable row level security;
@@ -826,24 +823,24 @@ create policy "exercises_insert_own" on public.exercises for insert with check (
 create policy "exercises_update_own" on public.exercises for update using (user_id = auth.uid() and is_system = false);
 create policy "exercises_delete_own" on public.exercises for delete using (user_id = auth.uid() and is_system = false);
 
--- workout_plans: только свои
-create policy "plans_all_own" on public.workout_plans for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- plans: только свои
+create policy "plans_all_own" on public.plans for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- plan_days: через join к plans
 create policy "plan_days_all" on public.plan_days for all
-  using (exists (select 1 from public.workout_plans p where p.id = plan_id and p.user_id = auth.uid()))
-  with check (exists (select 1 from public.workout_plans p where p.id = plan_id and p.user_id = auth.uid()));
+  using (exists (select 1 from public.plans p where p.id = plan_id and p.user_id = auth.uid()))
+  with check (exists (select 1 from public.plans p where p.id = plan_id and p.user_id = auth.uid()));
 
 -- plan_exercises: через двойной join
 create policy "plan_exercises_all" on public.plan_exercises for all
   using (exists (
     select 1 from public.plan_days pd
-    join public.workout_plans wp on wp.id = pd.plan_id
+    join public.plans wp on wp.id = pd.plan_id
     where pd.id = plan_day_id and wp.user_id = auth.uid()
   ))
   with check (exists (
     select 1 from public.plan_days pd
-    join public.workout_plans wp on wp.id = pd.plan_id
+    join public.plans wp on wp.id = pd.plan_id
     where pd.id = plan_day_id and wp.user_id = auth.uid()
   ));
 
@@ -859,7 +856,8 @@ create policy "sets_all" on public.sets for all
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer as $$
 begin
-  insert into public.profiles (id, name) values (new.id, coalesce(new.raw_user_meta_data->>'name', 'Спортсмен'));
+  insert into public.profiles (id, display_name)
+  values (new.id, coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1), 'Спортсмен'));
   return new;
 end $$;
 
@@ -1447,7 +1445,7 @@ export async function saveProfile(formData: FormData): Promise<{ error?: string 
 
   const { error } = await supabase
     .from('profiles')
-    .update({ name: parsed.data.name, goal: parsed.data.goal ?? null })
+    .update({ display_name: parsed.data.name, goal: parsed.data.goal ?? null })
     .eq('id', user.id);
 
   if (error) return { error: error.message };
@@ -5210,42 +5208,34 @@ git commit -m "Add CSV export route"
 
 ---
 
-### Task 38: Auto-create profile при регистрации
+### Task 38: Проверка автосоздания профиля
 
-**Files:**
-- Modify: миграция Supabase (добавить trigger в `supabase/migrations/0001_init.sql` или новый файл `0002_profile_trigger.sql`)
+Триггер `handle_new_user` уже создан в Task 7 (RLS-миграция) и проставляет `display_name` из `user_metadata.name` или префикса email. Проверь, что новые регистрации действительно получают profile:
 
-- [ ] **Step 1: Триггер `handle_new_user`**
+- [ ] **Step 1: Smoke-проверка**
+
+Через локальный Supabase Studio (`http://127.0.0.1:54323`) или прямым запросом:
+
+```bash
+npx supabase db query "select id, display_name, unit_system from public.profiles limit 5;"
+```
+
+Должны быть строки на каждую запись в `auth.users`. Если нет — проверь, что миграция RLS+trigger применилась (`select tgname from pg_trigger where tgname = 'on_auth_user_created';`).
+
+Если триггер не сработал на ранее созданных тестовых аккаунтах — добавь backfill в новый файл `supabase/migrations/0004_backfill_profiles.sql`:
 
 ```sql
--- supabase/migrations/0002_profile_trigger.sql
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, unit_system)
-  values (new.id, 'metric')
-  on conflict (id) do nothing;
-  return new;
-end;
-$$ language plpgsql security definer;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+insert into public.profiles (id, display_name)
+select u.id, coalesce(u.raw_user_meta_data->>'name', split_part(u.email, '@', 1), 'Спортсмен')
+from auth.users u
+on conflict (id) do nothing;
 ```
 
-- [ ] **Step 2: Применить миграцию**
+- [ ] **Step 2: Commit (если был backfill)**
 
 ```bash
-npx supabase db push
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add .
-git commit -m "Auto-provision profile on signup"
+git add supabase/migrations/
+git commit -m "Backfill profiles for pre-existing accounts"
 ```
 
 ---
