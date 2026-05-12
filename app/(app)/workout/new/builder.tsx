@@ -15,6 +15,7 @@ import type { WorkoutTemplate } from '@/server/plans';
 import type { RepCategory } from '@/lib/progression';
 import { MUSCLE_LABELS, type MuscleGroup } from '@/lib/volume';
 import { exerciseImageUrl } from '@/lib/exercise-images';
+import { tapSoft, tapSuccess } from '@/lib/haptics';
 
 const WEEKDAY_SHORT = ['', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
@@ -130,6 +131,7 @@ export function AdHocBuilder({ exercises, templates }: AdHocBuilderProps) {
   }
 
   function onTemplateTap(t: WorkoutTemplate) {
+    tapSoft();
     if (picks.size === 0) {
       applyTemplate(t);
       return;
@@ -166,6 +168,7 @@ export function AdHocBuilder({ exercises, templates }: AdHocBuilderProps) {
   }, [exercises, query, muscle]);
 
   function toggle(ex: CatalogExercise) {
+    tapSoft();
     setPicks((prev) => {
       const next = new Map(prev);
       if (next.has(ex.id)) {
@@ -204,6 +207,7 @@ export function AdHocBuilder({ exercises, templates }: AdHocBuilderProps) {
 
   function start() {
     if (picks.size === 0) return;
+    tapSuccess();
     const payload = Array.from(picks.values()).map((p) => ({
       exercise_id: p.exercise_id,
       rep_category: p.rep_category,

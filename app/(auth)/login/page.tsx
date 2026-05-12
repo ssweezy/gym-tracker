@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Stagger, Reveal } from '@/components/motion/stagger';
 import { Input } from '@/components/ui/input';
 import { authWithCredentials, signInWithGoogle } from './actions';
+import { tapMedium } from '@/lib/haptics';
 
 const PRIMARY_GRADIENT = 'linear-gradient(180deg, #3DD668 0%, #2BB955 100%)';
 const PRIMARY_GLOW = '0 8px 24px -8px rgba(52,199,89,0.45)';
@@ -18,6 +19,7 @@ export default function LoginPage() {
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    tapMedium();
     const fd = new FormData(e.currentTarget);
     fd.set('mode', mode);
     start(async () => {

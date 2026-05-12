@@ -23,6 +23,7 @@ import {
 import type { PlanSummary } from '@/server/plans';
 import type { PlanPreset } from '@/server/types';
 import { cn } from '@/lib/utils';
+import { tapMedium, tapSuccess } from '@/lib/haptics';
 
 interface PresetOption {
   value: PlanPreset;
@@ -101,8 +102,10 @@ export function ChangePlanSheet({
   }
 
   function activate(planId: string, name: string) {
+    tapMedium();
     run(() => activatePlan(planId), () => {
       toast.success(`План «${name}» активирован`);
+      tapSuccess();
       reset();
       router.refresh();
     });
@@ -117,19 +120,23 @@ export function ChangePlanSheet({
   }
 
   function remove(planId: string, name: string) {
+    tapMedium();
     run(() => deletePlan(planId), () => {
       toast.success(`План «${name}» удалён`);
+      tapSuccess();
       reset();
       router.refresh();
     });
   }
 
   function createCustom(name: string) {
+    tapMedium();
     run(
       () => createCustomPlan(name),
       (res) => {
         if (res.id) {
           toast.success(`План «${name}» создан`);
+          tapSuccess();
           setState({ kind: 'activateAfterCreate', planId: res.id, name });
           router.refresh();
         }
@@ -138,11 +145,13 @@ export function ChangePlanSheet({
   }
 
   function createFromPreset(preset: PlanPreset, name: string) {
+    tapMedium();
     run(
       () => createPlanFromPreset(name, preset),
       (res) => {
         if (res.id) {
           toast.success(`План «${name}» создан`);
+          tapSuccess();
           setState({ kind: 'activateAfterCreate', planId: res.id, name });
           router.refresh();
         }

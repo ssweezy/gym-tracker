@@ -181,3 +181,39 @@ export async function createCustomExercise(
   revalidatePath('/exercises');
   return { id: data.id };
 }
+
+export async function deleteCustomExercise(
+  id: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'Не авторизован' };
+
+  // Safety: never let a system exercise be deleted, even if a stray UI path
+  // tried. RLS would reject anyway, but a clear error message helps.
+  const { data: ex } = await supabase
+    .from('exercises')
+    .select('is_system, user_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (!ex) return { error: 'Упражнение не найдено' };
+  if (ex.is_system) return { error: 'Системное упражнение нельзя удалить' };
+  if (ex.user_id !== user.id) return { error: 'Не ваше упражнение' };
+
+  const { error } = await supabase.from('exercises').delete().eq('id', id);
+  if (error) {
+    // FK violation when the exercise is referenced from plan_exercises or sets.
+    if (/foreign key|violates|restrict/i.test(error.message)) {
+      return {
+        error:
+          'Упражнение есть в плане или истории тренировок — сначала уберите его оттуда.',
+      };
+    }
+    return { error: error.message };
+  }
+
+  revalidatePath('/exercises');
+  return {};
+}

@@ -117,9 +117,12 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
           </div>
           <div className="mt-3 overflow-x-auto pl-5 pr-3 pb-2 [&::-webkit-scrollbar]:hidden">
             <div className="flex gap-2.5">
-              {inPlan.map((ex) => {
+              {inPlan.map((ex, idx) => {
                 const img = (ex.is_system ?? true) ? exerciseImageUrl(ex.name) : null;
                 const hue = muscleHue(ex.muscle_groups[0] ?? 'chest');
+                // First two featured cards are above the fold — prioritize them
+                // so LCP doesn't wait on lazy-loaded remote thumbnails.
+                const isPriority = idx < 2;
                 return (
                   <Link
                     key={ex.id}
@@ -132,9 +135,11 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
                           src={img}
                           alt={ex.name}
                           fill
-                          sizes="160px"
+                          sizes="180px"
                           className="object-cover"
                           unoptimized
+                          priority={isPriority}
+                          loading={isPriority ? undefined : 'lazy'}
                         />
                         <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-accent-green" />
                       </div>

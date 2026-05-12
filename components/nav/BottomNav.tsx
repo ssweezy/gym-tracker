@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Home, CalendarDays, Dumbbell, TrendingUp, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { tapSoft } from '@/lib/haptics';
 
 const items = [
   { href: '/', label: 'Сегодня', icon: Home },
@@ -32,12 +33,7 @@ export function BottomNav() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 safe-bottom">
       <div className="mx-auto max-w-md">
-        <div
-          className="border-t border-white/[0.06] bg-bg/70 backdrop-blur-2xl backdrop-saturate-150"
-          style={{
-            WebkitBackdropFilter: 'blur(32px) saturate(150%)',
-          }}
-        >
+        <div className="border-t border-white/[0.06] bg-bg">
           <ul className="grid grid-cols-5 px-1.5 pt-1.5 pb-1">
             {items.map(({ href, label, icon: Icon }) => {
               const active = isActive(pathname, href);
@@ -45,6 +41,7 @@ export function BottomNav() {
                 <li key={href}>
                   <Link
                     href={href}
+                    onClick={tapSoft}
                     className="group relative flex flex-col items-center gap-[3px] rounded-2xl px-1 pt-2 pb-[10px] transition-colors"
                   >
                     <Icon

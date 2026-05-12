@@ -5,6 +5,7 @@ import { useTransition } from 'react';
 import { Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { startSession } from '@/server/sessions';
+import { tapMedium } from '@/lib/haptics';
 
 interface StartWorkoutButtonProps {
   planDayId?: string | null;
@@ -21,6 +22,7 @@ export function StartWorkoutButton({
   const [isPending, startTransition] = useTransition();
 
   function start() {
+    tapMedium();
     // Off-plan flow now navigates to the ad-hoc builder instead of starting an
     // empty session in-place.
     if (!planDayId) {

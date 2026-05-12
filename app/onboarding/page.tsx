@@ -8,6 +8,7 @@ import { Stagger, Reveal } from '@/components/motion/stagger';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { completeOnboarding } from './actions';
+import { tapSuccess } from '@/lib/haptics';
 
 type Goal = 'hypertrophy' | 'strength' | 'endurance';
 type Preset = 'fullbody3' | 'upper_lower' | 'split3';
@@ -68,6 +69,7 @@ export default function OnboardingPage() {
       return;
     }
     if (!goal || !preset) return;
+    tapSuccess();
     const fd = new FormData();
     fd.set('display_name', displayName.trim());
     fd.set('goal', goal);

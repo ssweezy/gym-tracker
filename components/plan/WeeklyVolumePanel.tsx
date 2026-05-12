@@ -12,6 +12,7 @@ import {
   type MuscleGroup,
   type VolumeStatus,
 } from '@/lib/volume';
+import { tapSoft } from '@/lib/haptics';
 
 export interface VolumeRow {
   group: MuscleGroup;
@@ -108,7 +109,10 @@ export function WeeklyVolumePanel({ rows, days = [] }: WeeklyVolumePanelProps) {
               >
                 <button
                   type="button"
-                  onClick={() => setOpenGroup(v.group)}
+                  onClick={() => {
+                    tapSoft();
+                    setOpenGroup(v.group);
+                  }}
                   className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors active:bg-white/[0.03]"
                 >
                   <div className="w-[88px] text-[14px] font-medium">

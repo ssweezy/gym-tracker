@@ -12,6 +12,7 @@ import { LoggedSetsList } from './LoggedSetsList';
 import { cn } from '@/lib/utils';
 import { validateFollowupSet, REP_RANGES, type RepCategory } from '@/lib/progression';
 import { logSet } from '@/server/sets';
+import { tapError, tapSuccess } from '@/lib/haptics';
 
 const categoryColor: Record<RepCategory, 'green' | 'crimson' | 'gray'> = {
   strength: 'crimson',
@@ -98,6 +99,7 @@ export function SetLogger({
   function submit() {
     if (isFirstSet && !failure) {
       toast.error('Первый подход должен быть до отказа');
+      tapError();
       return;
     }
     if (!isFirstSet && firstSet) {
@@ -127,12 +129,14 @@ export function SetLogger({
       if (res.error) {
         setOptimistic((prev) => prev.slice(0, -1));
         toast.error(res.error);
+        tapError();
       } else {
         // Server has persisted the set and revalidatePath has updated the
         // parent's `doneSets` prop. Drop the optimistic copy so we don't
         // render the same row twice.
         setOptimistic([]);
         toast.success('Подход записан');
+        tapSuccess();
         startRest(90);
         setFailure(false);
       }

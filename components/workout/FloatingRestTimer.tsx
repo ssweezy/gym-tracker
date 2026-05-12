@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Pause, Play, Plus, X } from 'lucide-react';
 import { useRestTimer } from './RestTimerContext';
+import { tapSoft } from '@/lib/haptics';
 
 export function FloatingRestTimer() {
   const { active, paused, remaining, duration, endRest, addTime, togglePause } =
@@ -112,7 +113,10 @@ export function FloatingRestTimer() {
             {/* +15s */}
             <button
               type="button"
-              onClick={() => addTime(15)}
+              onClick={() => {
+                tapSoft();
+                addTime(15);
+              }}
               aria-label="+15 секунд"
               className={`flex h-10 shrink-0 items-center gap-0.5 rounded-full bg-white/[0.06] px-2.5 text-[12.5px] font-semibold tabular-nums active:scale-95 transition-transform ${
                 finished ? 'text-white' : 'text-text-primary'
@@ -126,7 +130,10 @@ export function FloatingRestTimer() {
                 Disabled when the rest already hit zero. */}
             <button
               type="button"
-              onClick={togglePause}
+              onClick={() => {
+                tapSoft();
+                togglePause();
+              }}
               disabled={finished}
               aria-label={paused ? 'Продолжить отдых' : 'Поставить на паузу'}
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full active:scale-95 transition-all disabled:opacity-30 disabled:active:scale-100 ${
@@ -147,7 +154,10 @@ export function FloatingRestTimer() {
             {/* Close / end */}
             <button
               type="button"
-              onClick={endRest}
+              onClick={() => {
+                tapSoft();
+                endRest();
+              }}
               aria-label="Завершить отдых"
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full active:scale-95 transition-all ${
                 finished

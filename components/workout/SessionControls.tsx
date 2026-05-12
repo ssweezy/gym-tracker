@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Sheet } from '@/components/ui/sheet';
 import { finishSession } from '@/server/sessions';
 import { startSession } from '@/server/sessions';
+import { tapMedium, tapSuccess } from '@/lib/haptics';
 
 interface SessionControlsProps {
   sessionId: string | null;
@@ -40,6 +41,7 @@ export function SessionControls({
   const [paused, setPaused] = useState(false);
 
   function togglePause() {
+    tapMedium();
     if (paused) {
       setPaused(false);
       toast('Тренировка продолжена');
@@ -61,6 +63,7 @@ export function SessionControls({
       if (res.error) toast.error(res.error);
       else {
         toast.success('Тренировка завершена');
+        tapSuccess();
         setSummaryOpen(false);
         router.refresh();
       }

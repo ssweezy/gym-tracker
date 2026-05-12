@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Stepper } from '@/components/ui/stepper';
 import { MUSCLE_LABELS, type MuscleGroup } from '@/lib/volume';
 import { cn } from '@/lib/utils';
+import { tapMedium, tapError, tapSuccess } from '@/lib/haptics';
 import { createCustomExerciseAction } from './actions';
 
 const MUSCLE_OPTIONS: MuscleGroup[] = [
@@ -31,6 +32,9 @@ export function NewExerciseForm() {
   const [tips, setTips] = useState<string[]>(['']);
   const [historicalFact, setHistoricalFact] = useState('');
   const [isPending, startTransition] = useTransition();
+  // Hard guard against double-submit. `isPending` from useTransition flips
+  // async, so a rapid second tap can fire before the disabled state lands.
+  const submittingRef = useRef(false);
 
   function toggleMuscle(m: MuscleGroup) {
     setMuscles((prev) =>
@@ -39,6 +43,9 @@ export function NewExerciseForm() {
   }
 
   function submit() {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    tapMedium();
     startTransition(async () => {
       const res = await createCustomExerciseAction({
         name,
@@ -48,7 +55,17 @@ export function NewExerciseForm() {
         technique_tips: tips.filter((t) => t.trim()),
         historical_fact: historicalFact || undefined,
       });
-      if (res?.error) toast.error(res.error);
+      if (res?.error) {
+        // Server kept the row(s) it inserted. Unlock so the user can retry
+        // after fixing the validation error.
+        submittingRef.current = false;
+        tapError();
+        toast.error(res.error);
+        return;
+      }
+      // Success — server `redirect('/exercises')` throws NEXT_REDIRECT and
+      // the component will unmount, so keeping the lock engaged is fine.
+      tapSuccess();
     });
   }
 

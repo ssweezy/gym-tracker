@@ -16,6 +16,7 @@ import {
   AddToPlanSheet,
   type AddToPlanDayOption,
 } from '@/components/exercises/AddToPlanSheet';
+import { DeleteExerciseButton } from '@/components/exercises/DeleteExerciseButton';
 import { exerciseImageUrl } from '@/lib/exercise-images';
 import { getExerciseMuscleLabels } from '@/lib/exercise-muscles';
 import { RU_MONTHS } from '@/lib/date';
@@ -244,13 +245,19 @@ export default async function ExerciseDetailPage({ params }: PageProps) {
         </Reveal>
       )}
 
-      <Reveal className="mt-7 pb-2">
+      <Reveal className="mt-7">
         <AddToPlanSheet
           exerciseId={ex.id}
           exerciseName={ex.name}
           days={dayOptions}
         />
       </Reveal>
+
+      {!isSystem && (
+        <Reveal className="mt-3 pb-2">
+          <DeleteExerciseButton exerciseId={ex.id} exerciseName={ex.name} />
+        </Reveal>
+      )}
     </Stagger>
   );
 }
