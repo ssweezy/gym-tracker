@@ -37,31 +37,36 @@ export default async function ProfilePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  const [plan, { count: sessionCount }] = await Promise.all([
+  // All five top-level queries are independent — fan them out in parallel
+  // instead of waiting for them serially across the Atlantic.
+  const [
+    profileResp,
+    plan,
+    sessionCountResp,
+    setsAggResp,
+    finishedWithDuration,
+  ] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
     getActivePlan(user.id),
     supabase
       .from('sessions')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
       .not('finished_at', 'is', null),
+    supabase
+      .from('sets')
+      .select('weight_kg, reps, sessions!inner(user_id)')
+      .eq('sessions.user_id', user.id),
+    // Total cumulative training time across all finished sessions (last 2y
+    // window is plenty for the foreseeable user lifetime here).
+    getFinishedSessionsWithDuration(365 * 2),
   ]);
 
-  const { data: setsAgg } = await supabase
-    .from('sets')
-    .select('weight_kg, reps, sessions!inner(user_id)')
-    .eq('sessions.user_id', user.id);
+  const profile = profileResp.data;
+  const sessionCount = sessionCountResp.count;
+  const setsAgg = setsAggResp.data;
   const tonnage =
     (setsAgg ?? []).reduce((s, r) => s + r.weight_kg * r.reps, 0) / 1000;
-
-  // Total cumulative training time across all finished sessions (last 2y window
-  // is plenty for the foreseeable user lifetime here).
-  const finishedWithDuration = await getFinishedSessionsWithDuration(365 * 2);
   const totalMinutes = finishedWithDuration.reduce(
     (sum, s) => sum + s.duration_min,
     0,

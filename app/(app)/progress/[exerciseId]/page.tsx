@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound, redirect } from 'next/navigation';
@@ -11,6 +12,10 @@ import {
   getSessionsForExercise,
 } from '@/server/sets';
 import { Stagger, Reveal } from '@/components/motion/stagger';
+import {
+  StatTilesSkeleton,
+  SessionsListSkeleton,
+} from '@/components/skeletons/Skeletons';
 import { exerciseImageUrl } from '@/lib/exercise-images';
 import { RU_MONTHS } from '@/lib/date';
 import {
@@ -46,79 +51,12 @@ export default async function ExerciseProgressDetailPage({ params }: PageProps) 
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  // Hero needs the exercise row before we can render the header — keep it on
+  // the critical path. All heavy aggregations move behind Suspense below.
   const ex = await getExerciseById(exerciseId);
   if (!ex) notFound();
 
-  const [firstSets, weeklyBuckets, personalBest, sessions] = await Promise.all([
-    getFirstSetsForExercise(exerciseId),
-    getAllSetsForExerciseTotalsByWeek(exerciseId),
-    getPersonalBest(exerciseId),
-    getSessionsForExercise(exerciseId),
-  ]);
-
-  const chartPoints: WeightOverTimePoint[] = firstSets.map((s) => ({
-    x: s.completed_at,
-    weight: s.weight_kg,
-    reps: s.reps,
-  }));
-
-  const weeklyPoints: WeeklyVolumePoint[] = weeklyBuckets.map((w) => ({
-    label: formatShortDay(w.weekStart),
-    volume: w.tonnage,
-  }));
-
-  const lastSet = firstSets.at(-1) ?? null;
-  const totalSets = sessions.reduce((sum, s) => sum + s.setCount, 0);
-
   const heroImg = (ex.is_system ?? true) ? exerciseImageUrl(ex.name) : null;
-
-  interface StatTile {
-    icon: typeof Activity;
-    label: 'Текущий' | 'Рекорд' | 'Подходов';
-    value: string;
-    reps: number | null;
-    sub: string;
-    valueColor: string;
-    iconColor: string;
-    dot: string;
-    topBar?: string;
-  }
-
-  const stats: StatTile[] = [
-    {
-      icon: Activity,
-      label: 'Текущий',
-      value: lastSet ? lastSet.weight_kg.toString().replace('.', ',') : '—',
-      reps: lastSet ? lastSet.reps : null,
-      sub: lastSet ? '' : 'нет данных',
-      valueColor: 'text-accent-green',
-      iconColor: 'text-accent-green',
-      dot: '#34C759',
-    },
-    {
-      icon: Trophy,
-      label: 'Рекорд',
-      value: personalBest
-        ? personalBest.weight_kg.toString().replace('.', ',')
-        : '—',
-      reps: personalBest ? personalBest.reps : null,
-      sub: personalBest ? '' : 'нет данных',
-      valueColor: 'text-accent-warning',
-      iconColor: 'text-accent-warning',
-      dot: '#FF9500',
-    },
-    {
-      icon: Layers,
-      label: 'Подходов',
-      value: String(totalSets),
-      reps: null,
-      sub: `за ${sessions.length} ${sessions.length === 1 ? 'тренировку' : sessions.length < 5 ? 'тренировки' : 'тренировок'}`,
-      valueColor: 'text-text-primary',
-      iconColor: 'text-accent-crimson',
-      dot: '#FF2D55',
-      topBar: 'bg-accent-crimson',
-    },
-  ];
 
   return (
     <Stagger className="px-5 pt-9">
@@ -169,6 +107,97 @@ export default async function ExerciseProgressDetailPage({ params }: PageProps) 
         )}
       </Reveal>
 
+      <Suspense fallback={<StatTilesSkeleton />}>
+        <StatsAndCharts exerciseId={exerciseId} />
+      </Suspense>
+
+      <Reveal className="mt-7 flex items-baseline justify-between">
+        <h2 className="flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-[0.06em] text-text-secondary">
+          <Calendar size={13} strokeWidth={2.4} />
+          История
+        </h2>
+      </Reveal>
+
+      <Suspense fallback={<SessionsListSkeleton />}>
+        <SessionsList exerciseId={exerciseId} />
+      </Suspense>
+    </Stagger>
+  );
+}
+
+interface StatTile {
+  icon: typeof Activity;
+  label: 'Текущий' | 'Рекорд' | 'Подходов';
+  value: string;
+  reps: number | null;
+  sub: string;
+  valueColor: string;
+  iconColor: string;
+  dot: string;
+  topBar?: string;
+}
+
+async function StatsAndCharts({ exerciseId }: { exerciseId: string }) {
+  // All four aggregations are independent — fire in parallel.
+  const [firstSets, weeklyBuckets, personalBest, sessions] = await Promise.all([
+    getFirstSetsForExercise(exerciseId),
+    getAllSetsForExerciseTotalsByWeek(exerciseId),
+    getPersonalBest(exerciseId),
+    getSessionsForExercise(exerciseId),
+  ]);
+
+  const chartPoints: WeightOverTimePoint[] = firstSets.map((s) => ({
+    x: s.completed_at,
+    weight: s.weight_kg,
+    reps: s.reps,
+  }));
+
+  const weeklyPoints: WeeklyVolumePoint[] = weeklyBuckets.map((w) => ({
+    label: formatShortDay(w.weekStart),
+    volume: w.tonnage,
+  }));
+
+  const lastSet = firstSets.at(-1) ?? null;
+  const totalSets = sessions.reduce((sum, s) => sum + s.setCount, 0);
+
+  const stats: StatTile[] = [
+    {
+      icon: Activity,
+      label: 'Текущий',
+      value: lastSet ? lastSet.weight_kg.toString().replace('.', ',') : '—',
+      reps: lastSet ? lastSet.reps : null,
+      sub: lastSet ? '' : 'нет данных',
+      valueColor: 'text-accent-green',
+      iconColor: 'text-accent-green',
+      dot: '#34C759',
+    },
+    {
+      icon: Trophy,
+      label: 'Рекорд',
+      value: personalBest
+        ? personalBest.weight_kg.toString().replace('.', ',')
+        : '—',
+      reps: personalBest ? personalBest.reps : null,
+      sub: personalBest ? '' : 'нет данных',
+      valueColor: 'text-accent-warning',
+      iconColor: 'text-accent-warning',
+      dot: '#FF9500',
+    },
+    {
+      icon: Layers,
+      label: 'Подходов',
+      value: String(totalSets),
+      reps: null,
+      sub: `за ${sessions.length} ${sessions.length === 1 ? 'тренировку' : sessions.length < 5 ? 'тренировки' : 'тренировок'}`,
+      valueColor: 'text-text-primary',
+      iconColor: 'text-accent-crimson',
+      dot: '#FF2D55',
+      topBar: 'bg-accent-crimson',
+    },
+  ];
+
+  return (
+    <>
       <Reveal className="mt-5">
         <div className="grid grid-cols-3 gap-2">
           {stats.map(
@@ -275,72 +304,70 @@ export default async function ExerciseProgressDetailPage({ params }: PageProps) 
           <WeeklyVolumeBarChart weeks={weeklyPoints} />
         </div>
       </Reveal>
+    </>
+  );
+}
 
-      <Reveal className="mt-7 flex items-baseline justify-between">
-        <h2 className="flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-[0.06em] text-text-secondary">
-          <Calendar size={13} strokeWidth={2.4} />
-          История
-        </h2>
-        <span className="text-[11px] text-text-tertiary tabular-nums">
-          {sessions.length}
-        </span>
-      </Reveal>
+async function SessionsList({ exerciseId }: { exerciseId: string }) {
+  // Fetch the sessions slice independently of the stats/charts so the two
+  // Suspense boundaries can stream out of order.
+  const sessions = await getSessionsForExercise(exerciseId);
 
-      <Reveal className="mt-3 pb-2">
-        <div className="overflow-hidden rounded-[22px] bg-bg-elevated">
-          {sessions.length === 0 ? (
-            <div className="px-4 py-10 text-center text-[13px] text-text-tertiary">
-              Пока нет тренировок с этим упражнением.
-            </div>
-          ) : (
-            <ul className="divide-y divide-white/[0.04]">
-              {sessions.slice(0, 20).map((s) => {
-                const ts = s.finished_at ?? s.started_at;
-                const d = new Date(ts);
-                return (
-                  <li key={s.session_id} className="px-4 py-3.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[14px] font-semibold leading-tight tabular-nums">
-                          {formatRu(d)}
-                        </div>
-                        <div className="mt-1 text-[11.5px] text-text-tertiary tabular-nums">
-                          {s.setCount}{' '}
-                          {s.setCount === 1
-                            ? 'подход'
-                            : s.setCount < 5
-                              ? 'подхода'
-                              : 'подходов'}
-                        </div>
+  return (
+    <Reveal className="mt-3 pb-2">
+      <div className="overflow-hidden rounded-[22px] bg-bg-elevated">
+        {sessions.length === 0 ? (
+          <div className="px-4 py-10 text-center text-[13px] text-text-tertiary">
+            Пока нет тренировок с этим упражнением.
+          </div>
+        ) : (
+          <ul className="divide-y divide-white/[0.04]">
+            {sessions.slice(0, 20).map((s) => {
+              const ts = s.finished_at ?? s.started_at;
+              const d = new Date(ts);
+              return (
+                <li key={s.session_id} className="px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-semibold leading-tight tabular-nums">
+                        {formatRu(d)}
                       </div>
-                      <div
-                        className="text-right tabular-nums"
-                        style={{ fontFeatureSettings: '"tnum"' }}
-                      >
-                        <span className="text-[15px] font-semibold leading-none text-accent-green">
-                          {s.topReps}
-                        </span>
-                        <span className="ml-0.5 text-[11px] text-text-tertiary">
-                          повт.
-                        </span>
-                        <span className="mx-1 text-[11px] text-text-tertiary">
-                          ×
-                        </span>
-                        <span className="text-[15px] font-semibold leading-none">
-                          {s.topWeight.toString().replace('.', ',')}
-                        </span>
-                        <span className="ml-0.5 text-[11px] text-text-tertiary">
-                          кг
-                        </span>
+                      <div className="mt-1 text-[11.5px] text-text-tertiary tabular-nums">
+                        {s.setCount}{' '}
+                        {s.setCount === 1
+                          ? 'подход'
+                          : s.setCount < 5
+                            ? 'подхода'
+                            : 'подходов'}
                       </div>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </Reveal>
-    </Stagger>
+                    <div
+                      className="text-right tabular-nums"
+                      style={{ fontFeatureSettings: '"tnum"' }}
+                    >
+                      <span className="text-[15px] font-semibold leading-none text-accent-green">
+                        {s.topReps}
+                      </span>
+                      <span className="ml-0.5 text-[11px] text-text-tertiary">
+                        повт.
+                      </span>
+                      <span className="mx-1 text-[11px] text-text-tertiary">
+                        ×
+                      </span>
+                      <span className="text-[15px] font-semibold leading-none">
+                        {s.topWeight.toString().replace('.', ',')}
+                      </span>
+                      <span className="ml-0.5 text-[11px] text-text-tertiary">
+                        кг
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </Reveal>
   );
 }

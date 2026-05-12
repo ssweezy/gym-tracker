@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Flame, Timer } from 'lucide-react';
@@ -22,6 +23,10 @@ import {
   PlanExerciseFlow,
   type PlanExerciseFlowItem,
 } from '@/components/workout/PlanExerciseFlow';
+import {
+  TodayHeroSkeleton,
+  TodayExerciseListSkeleton,
+} from '@/components/skeletons/Skeletons';
 import { suggestNext, type RepCategory } from '@/lib/progression';
 import { MUSCLE_LABELS, type MuscleGroup } from '@/lib/volume';
 import { formatRuDate, RU_WEEKDAY_LONG, toSchemaWeekday } from '@/lib/date';
@@ -84,6 +89,10 @@ function ruDaysWord(n: number): string {
   return 'дней';
 }
 
+// ---------------------------------------------------------------------------
+// Page entry point — auth gate runs synchronously, then the page splits into
+// a static header and Suspense-boundary sections that stream independently.
+// ---------------------------------------------------------------------------
 export default async function TodayPage() {
   const supabase = await createClient();
   const {
@@ -92,16 +101,52 @@ export default async function TodayPage() {
   if (!user) redirect('/login');
 
   const today = new Date();
+
+  return (
+    <Stagger className="px-5 pt-9">
+      <Reveal className="flex items-baseline justify-between">
+        <div className="text-[13px] font-medium text-text-tertiary">
+          {RU_WEEKDAY_LONG[today.getDay()]} · {formatRuDate(today)}
+        </div>
+      </Reveal>
+
+      <Suspense fallback={<HeaderAndHeroSkeleton />}>
+        <TodayBody userId={user.id} today={today} />
+      </Suspense>
+    </Stagger>
+  );
+}
+
+function HeaderAndHeroSkeleton() {
+  return (
+    <>
+      <Reveal className="mt-2">
+        <h1 className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]">
+          Сегодня
+        </h1>
+      </Reveal>
+      <TodayHeroSkeleton />
+      <TodayExerciseListSkeleton />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// All async data lives inside this component so the page shell streams first
+// and the body fills in once Supabase responds. Within `TodayBody` we kick off
+// all independent queries with Promise.all, and once we know we're in an
+// active session we also parallelize the per-exercise history/PB fetches.
+// ---------------------------------------------------------------------------
+async function TodayBody({ userId, today }: { userId: string; today: Date }) {
   const weekday = toSchemaWeekday(today);
 
-  const plan = await getActivePlan(user.id);
+  // Top-level independent queries.
+  const [plan, currentSession, finishedSessions] = await Promise.all([
+    getActivePlan(userId),
+    getCurrentSession(),
+    getFinishedSessions(90),
+  ]);
 
-  // Active session takes precedence — handles both plan workouts and ad-hoc
-  // workouts uniformly since both are now backed by a real plan_day.
-  const currentSession = await getCurrentSession();
-
-  // Pre-compute stats used by the idle / rest layouts.
-  const finishedSessions = await getFinishedSessions(90);
   const finishedDates = finishedSessions
     .map((s) => (s.finished_at ? new Date(s.finished_at) : null))
     .filter((d): d is Date => d !== null);
@@ -117,8 +162,8 @@ export default async function TodayPage() {
       // Defensive: legacy off-plan sessions had plan_day_id=null. New flow
       // always attaches a hidden plan_day, but we surface a graceful fallback.
       return (
-        <Stagger className="px-5 pt-9">
-          <Reveal>
+        <>
+          <Reveal className="mt-2">
             <h1 className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]">
               Сегодня
             </h1>
@@ -138,17 +183,21 @@ export default async function TodayPage() {
               />
             </div>
           </Reveal>
-        </Stagger>
+        </>
       );
     }
 
-    const planDay = await getPlanDay(currentSession.plan_day_id);
+    // Day + initial set rows + catalog can all run in parallel.
+    const [planDay, setsRows, catalog] = await Promise.all([
+      getPlanDay(currentSession.plan_day_id),
+      getSetsForSession(currentSession.id),
+      listExercises({}),
+    ]);
+
     if (!planDay) {
-      // Defensive — shouldn't happen since the FK exists.
       redirect('/');
     }
 
-    const setsRows = await getSetsForSession(currentSession.id);
     const totalSets = planDay.exercises.reduce((s, pe) => s + pe.target_sets, 0);
     const doneSets = setsRows.length;
 
@@ -159,46 +208,53 @@ export default async function TodayPage() {
       setsByExercise.set(s.exercise_id, arr);
     }
 
-    const planFlowItems: PlanExerciseFlowItem[] = [];
-    for (const pe of planDay.exercises) {
-      const history = await getSetHistoryForExercise(pe.exercise_id, 5);
-      const sug = suggestNext(
-        history,
-        pe.rep_category as RepCategory,
-        pe.exercise.increment_kg ?? 2.5,
-        today,
-      );
-      const pb = await getPersonalBest(pe.exercise_id);
-      const sets = setsByExercise.get(pe.exercise_id) ?? [];
+    // Parallelize per-exercise queries (was sequential N+1: ~2 RTTs per exercise).
+    const exerciseIds = planDay.exercises.map((pe) => pe.exercise_id);
+    const [histories, personalBests] = await Promise.all([
+      Promise.all(exerciseIds.map((id) => getSetHistoryForExercise(id, 5))),
+      Promise.all(exerciseIds.map((id) => getPersonalBest(id))),
+    ]);
 
-      planFlowItems.push({
-        planExerciseId: pe.id,
-        exerciseId: pe.exercise_id,
-        exerciseName: pe.exercise.name,
-        category: pe.rep_category as RepCategory,
-        targetSets: pe.target_sets,
-        incrementKg: pe.exercise.increment_kg ?? 2.5,
-        doneSets: sets.map((s) => ({
-          weight_kg: s.weight_kg,
-          reps: s.reps,
-          is_first_set: s.is_first_set,
-          completed_at: s.completed_at ?? null,
-        })),
-        target: {
-          suggestion: {
-            weight_kg: sug.weight_kg,
-            target_reps: sug.target_reps,
-            min_reps_followups: sug.min_reps_followups,
-            reasoning: sug.reasoning,
+    const planFlowItems: PlanExerciseFlowItem[] = planDay.exercises.map(
+      (pe, i) => {
+        const history = histories[i];
+        const pb = personalBests[i];
+        const sug = suggestNext(
+          history,
+          pe.rep_category as RepCategory,
+          pe.exercise.increment_kg ?? 2.5,
+          today,
+        );
+        const sets = setsByExercise.get(pe.exercise_id) ?? [];
+        return {
+          planExerciseId: pe.id,
+          exerciseId: pe.exercise_id,
+          exerciseName: pe.exercise.name,
+          category: pe.rep_category as RepCategory,
+          targetSets: pe.target_sets,
+          incrementKg: pe.exercise.increment_kg ?? 2.5,
+          doneSets: sets.map((s) => ({
+            weight_kg: s.weight_kg,
+            reps: s.reps,
+            is_first_set: s.is_first_set,
+            completed_at: s.completed_at ?? null,
+          })),
+          target: {
+            suggestion: {
+              weight_kg: sug.weight_kg,
+              target_reps: sug.target_reps,
+              min_reps_followups: sug.min_reps_followups,
+              reasoning: sug.reasoning,
+            },
+            last:
+              history[0] !== undefined
+                ? { weight_kg: history[0].weight_kg, reps: history[0].reps }
+                : undefined,
           },
-          last:
-            history[0] !== undefined
-              ? { weight_kg: history[0].weight_kg, reps: history[0].reps }
-              : undefined,
-        },
-        personalBest: pb ? { weight_kg: pb.weight_kg, reps: pb.reps } : null,
-      });
-    }
+          personalBest: pb ? { weight_kg: pb.weight_kg, reps: pb.reps } : null,
+        };
+      },
+    );
 
     const completedExerciseCount = planFlowItems.filter(
       (it) => it.doneSets.length >= it.targetSets,
@@ -209,17 +265,11 @@ export default async function TodayPage() {
 
     const workoutPct = totalSets > 0 ? doneSets / totalSets : 0;
     const weekWorkoutDays = plan ? plan.days.filter((d) => !d.is_rest).length : 1;
-
-    // Pull catalog for the in-session "+ Добавить упражнение" picker.
-    const catalog = await listExercises({});
     const existingIds = new Set(planDay.exercises.map((pe) => pe.exercise_id));
 
     return (
-      <Stagger className="px-5 pt-9">
-        <Reveal className="flex items-baseline justify-between gap-3">
-          <div className="text-[13px] font-medium text-text-tertiary">
-            {RU_WEEKDAY_LONG[today.getDay()]} · {formatRuDate(today)}
-          </div>
+      <>
+        <Reveal className="flex items-baseline justify-end gap-3">
           <div className="flex items-center gap-2">
             {currentSession.started_at && (
               <SessionTimer startedAt={currentSession.started_at} />
@@ -400,15 +450,15 @@ export default async function TodayPage() {
             startedAt={currentSession.started_at ?? null}
           />
         </Reveal>
-      </Stagger>
+      </>
     );
   }
 
   // -------- NO ACTIVE SESSION --------
   if (!plan) {
     return (
-      <Stagger className="px-5 pt-9">
-        <Reveal>
+      <>
+        <Reveal className="mt-2">
           <h1 className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]">
             Сегодня
           </h1>
@@ -421,7 +471,7 @@ export default async function TodayPage() {
         <Reveal className="mt-4">
           <StartWorkoutButton planDayId={null} variant="secondary" />
         </Reveal>
-      </Stagger>
+      </>
     );
   }
 
@@ -435,11 +485,8 @@ export default async function TodayPage() {
     const minutes = Math.max(todayDay.exercises.length * 10, 30);
 
     return (
-      <Stagger className="px-5 pt-9">
-        <Reveal className="flex items-baseline justify-between">
-          <div className="text-[13px] font-medium text-text-tertiary">
-            {RU_WEEKDAY_LONG[today.getDay()]} · {formatRuDate(today)}
-          </div>
+      <>
+        <Reveal className="flex items-baseline justify-end">
           <div className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-semibold text-text-tertiary">
             Готов
           </div>
@@ -533,7 +580,7 @@ export default async function TodayPage() {
         <Reveal className="mt-3">
           <StartWorkoutButton planDayId={null} variant="secondary" />
         </Reveal>
-      </Stagger>
+      </>
     );
   }
 
@@ -544,11 +591,8 @@ export default async function TodayPage() {
     .sort((a, b) => a.dist - b.dist)[0];
 
   return (
-    <Stagger className="px-5 pt-9">
-      <Reveal className="flex items-baseline justify-between">
-        <div className="text-[13px] font-medium text-text-tertiary">
-          {RU_WEEKDAY_LONG[today.getDay()]} · {formatRuDate(today)}
-        </div>
+    <>
+      <Reveal className="flex items-baseline justify-end">
         <div className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-semibold text-text-tertiary">
           Отдых
         </div>
@@ -639,6 +683,6 @@ export default async function TodayPage() {
           </Link>
         </Reveal>
       )}
-    </Stagger>
+    </>
   );
 }

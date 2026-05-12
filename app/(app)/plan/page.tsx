@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ChevronRight, Flame, Plus, Timer } from 'lucide-react';
@@ -11,6 +12,10 @@ import {
   type BreakdownDay,
 } from '@/components/plan/WeeklyVolumePanel';
 import { ChangePlanButton } from '@/components/plan/ChangePlanButton';
+import {
+  WeekTimelineSkeleton,
+  VolumePanelSkeleton,
+} from '@/components/skeletons/Skeletons';
 import {
   computeWeeklyVolume,
   statusFor,
@@ -45,23 +50,72 @@ export default async function PlanPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const [plan, planLibrary] = await Promise.all([
-    getActivePlan(user.id),
-    listUserPlans(user.id),
-  ]);
-
   const today = new Date();
   const monday = getMondayOfWeek(today);
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
+
+  return (
+    <Stagger className="px-5 pt-9">
+      <Reveal className="flex items-baseline justify-between">
+        <div className="text-[13px] font-medium text-text-tertiary">
+          {monday.getDate()}–{sunday.getDate()} {RU_MONTHS_NOM[monday.getMonth()].toLowerCase()} · {RU_MONTHS_NOM[monday.getMonth()]} &apos;{String(monday.getFullYear()).slice(2)}
+        </div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary tabular-nums">
+          Неделя {getISOWeek(today)}
+        </div>
+      </Reveal>
+
+      <Suspense fallback={<PlanBodyFallback />}>
+        <PlanBody userId={user.id} today={today} monday={monday} />
+      </Suspense>
+    </Stagger>
+  );
+}
+
+function PlanBodyFallback() {
+  return (
+    <>
+      <Reveal className="mt-2 flex items-start justify-between gap-3">
+        <h1
+          className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
+          style={{ fontFeatureSettings: '"ss01"' }}
+        >
+          На этой неделе
+        </h1>
+      </Reveal>
+      <WeekTimelineSkeleton />
+      <VolumePanelSkeleton />
+    </>
+  );
+}
+
+async function PlanBody({
+  userId,
+  today,
+  monday,
+}: {
+  userId: string;
+  today: Date;
+  monday: Date;
+}) {
+  // Independent top-level queries run in parallel.
+  const [plan, planLibrary] = await Promise.all([
+    getActivePlan(userId),
+    listUserPlans(userId),
+  ]);
+
   const weekday = toSchemaWeekday(today);
 
   if (!plan) {
     return (
-      <Stagger className="px-5 pt-9">
-        <Reveal className="flex items-center justify-between gap-3">
-          <h1 className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]">
-            План
+      <>
+        <Reveal className="mt-2 flex items-start justify-between gap-3">
+          <h1
+            className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
+            style={{ fontFeatureSettings: '"ss01"' }}
+          >
+            На этой неделе
           </h1>
           <ChangePlanButton hasActivePlan={false} plans={planLibrary} />
         </Reveal>
@@ -70,7 +124,7 @@ export default async function PlanPage() {
             Активный план не найден. Создай новый из пресета или собери свой.
           </p>
         </Reveal>
-      </Stagger>
+      </>
     );
   }
 
@@ -120,16 +174,7 @@ export default async function PlanPage() {
   );
 
   return (
-    <Stagger className="px-5 pt-9">
-      <Reveal className="flex items-baseline justify-between">
-        <div className="text-[13px] font-medium text-text-tertiary">
-          {monday.getDate()}–{sunday.getDate()} {RU_MONTHS_NOM[monday.getMonth()].toLowerCase()} · {RU_MONTHS_NOM[monday.getMonth()]} &apos;{String(monday.getFullYear()).slice(2)}
-        </div>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary tabular-nums">
-          Неделя {getISOWeek(today)}
-        </div>
-      </Reveal>
-
+    <>
       <Reveal className="mt-2 flex items-start justify-between gap-3">
         <h1
           className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
@@ -231,6 +276,6 @@ export default async function PlanPage() {
           Добавить упражнение в план
         </Link>
       </Reveal>
-    </Stagger>
+    </>
   );
 }

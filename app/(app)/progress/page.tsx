@@ -1,9 +1,14 @@
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronRight, Clock, Dumbbell, Flame, TrendingUp } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getFinishedSessionsWithDuration } from '@/server/sessions';
 import { Stagger, Reveal } from '@/components/motion/stagger';
+import {
+  ProgressStatsSkeleton,
+  ProgressRecordsSkeleton,
+} from '@/components/skeletons/Skeletons';
 import { RU_MONTHS_NOM } from '@/lib/date';
 import { cn } from '@/lib/utils';
 
@@ -40,10 +45,70 @@ export default async function ProgressPage() {
   if (!user) redirect('/login');
 
   const now = new Date();
+
+  return (
+    <Stagger className="px-5 pt-9">
+      <Reveal>
+        <div className="text-[13px] font-medium text-text-tertiary">
+          {RU_MONTHS_NOM[now.getMonth()]} {now.getFullYear()}
+        </div>
+        <h1
+          className="mt-2 text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
+          style={{ fontFeatureSettings: '"ss01"' }}
+        >
+          Прогресс
+        </h1>
+      </Reveal>
+
+      <Suspense fallback={<ProgressStatsSkeleton />}>
+        <StatsAndHeatmap userId={user.id} now={now} />
+      </Suspense>
+
+      <Reveal className="mt-7 flex items-baseline justify-between">
+        <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-text-secondary">
+          Рабочие веса
+        </h2>
+      </Reveal>
+
+      <Suspense fallback={<ProgressRecordsSkeleton />}>
+        <WorkingWeights userId={user.id} />
+      </Suspense>
+    </Stagger>
+  );
+}
+
+async function StatsAndHeatmap({
+  userId,
+  now,
+}: {
+  userId: string;
+  now: Date;
+}) {
+  const supabase = await createClient();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  // Sessions for current month (with duration_min computed in TS)
-  const monthlyFinished = (await getFinishedSessionsWithDuration(90)).filter(
+  const twelveWeeksAgo = new Date();
+  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 12 * 7);
+  twelveWeeksAgo.setHours(0, 0, 0, 0);
+
+  // All independent queries run in parallel.
+  const [monthlyAll, setsResp, sessionDaysResp] = await Promise.all([
+    getFinishedSessionsWithDuration(90),
+    supabase
+      .from('sets')
+      .select('weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id)')
+      .eq('sessions.user_id', userId)
+      .gte('completed_at', twelveWeeksAgo.toISOString()),
+    supabase
+      .from('sessions')
+      .select('started_at')
+      .eq('user_id', userId)
+      .not('finished_at', 'is', null)
+      .order('started_at', { ascending: false })
+      .limit(60),
+  ]);
+
+  const monthlyFinished = monthlyAll.filter(
     (s) => new Date(s.started_at) >= monthStart,
   );
   const monthlySessions = monthlyFinished.length;
@@ -52,21 +117,10 @@ export default async function ProgressPage() {
     0,
   );
 
-  // All sets in last 84 days for heatmap + total tonnage
-  const twelveWeeksAgo = new Date();
-  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 12 * 7);
-  twelveWeeksAgo.setHours(0, 0, 0, 0);
-
-  const { data: rawSets } = await supabase
-    .from('sets')
-    .select('weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id)')
-    .eq('sessions.user_id', user.id)
-    .gte('completed_at', twelveWeeksAgo.toISOString());
-
-  const sets = rawSets ?? [];
+  const sets = setsResp.data ?? [];
   const tonnage = sets.reduce((s, r) => s + r.weight_kg * r.reps, 0) / 1000;
 
-  // Build heatmap: 12 weeks × 7 days. Sunday-end like the mockup is fine but we use Mon=col-start.
+  // 12 weeks x 7 days heatmap.
   const heat: number[][] = Array.from({ length: 12 }, () => Array(7).fill(0));
   for (const s of sets) {
     if (!s.completed_at) continue;
@@ -80,43 +134,9 @@ export default async function ProgressPage() {
   }
   const heatIntensity = heat.map((w) => w.map(intensityFromSets));
 
-  // Working weights — max weight per exercise (top 5)
-  const byExercise = new Map<string, { maxWeight: number; lastDate: Date }>();
-  for (const s of sets) {
-    if (!s.completed_at) continue;
-    const cur = byExercise.get(s.exercise_id);
-    if (!cur || s.weight_kg > cur.maxWeight) {
-      byExercise.set(s.exercise_id, {
-        maxWeight: s.weight_kg,
-        lastDate: new Date(s.completed_at),
-      });
-    }
-  }
-  const topExerciseIds = [...byExercise.entries()]
-    .sort((a, b) => b[1].maxWeight - a[1].maxWeight)
-    .slice(0, 6)
-    .map(([id]) => id);
-
-  const exerciseNames = new Map<string, string>();
-  if (topExerciseIds.length > 0) {
-    const { data: exRows } = await supabase
-      .from('exercises')
-      .select('id, name')
-      .in('id', topExerciseIds);
-    for (const ex of exRows ?? []) exerciseNames.set(ex.id, ex.name);
-  }
-
-  // Current streak — consecutive days back from today that have a session
-  const { data: sessionDays } = await supabase
-    .from('sessions')
-    .select('started_at')
-    .eq('user_id', user.id)
-    .not('finished_at', 'is', null)
-    .order('started_at', { ascending: false })
-    .limit(60);
-
+  const sessionDays = sessionDaysResp.data ?? [];
   const daySet = new Set<string>();
-  for (const s of sessionDays ?? []) {
+  for (const s of sessionDays) {
     daySet.add(new Date(s.started_at).toDateString());
   }
   let streak = 0;
@@ -163,19 +183,7 @@ export default async function ProgressPage() {
   ];
 
   return (
-    <Stagger className="px-5 pt-9">
-      <Reveal>
-        <div className="text-[13px] font-medium text-text-tertiary">
-          {RU_MONTHS_NOM[now.getMonth()]} {now.getFullYear()}
-        </div>
-        <h1
-          className="mt-2 text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
-          style={{ fontFeatureSettings: '"ss01"' }}
-        >
-          Прогресс
-        </h1>
-      </Reveal>
-
+    <>
       <Reveal className="mt-6">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {stats.map(({ label, value, sub, icon: Icon, color, dot }) => (
@@ -247,63 +255,97 @@ export default async function ProgressPage() {
           </div>
         </div>
       </Reveal>
+    </>
+  );
+}
 
-      <Reveal className="mt-7 flex items-baseline justify-between">
-        <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-text-secondary">
-          Рабочие веса
-        </h2>
-        <span className="text-[12px] text-text-tertiary tabular-nums">
-          {topExerciseIds.length}
-        </span>
-      </Reveal>
+async function WorkingWeights({ userId }: { userId: string }) {
+  const supabase = await createClient();
+  const twelveWeeksAgo = new Date();
+  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 12 * 7);
+  twelveWeeksAgo.setHours(0, 0, 0, 0);
 
-      <Reveal className="mt-3 pb-2">
-        <div className="overflow-hidden rounded-[22px] bg-bg-elevated">
-          {topExerciseIds.length === 0 ? (
-            <div className="px-4 py-10 text-center text-[13px] text-text-tertiary">
-              Пока нет записей. Запиши первый подход — и здесь появятся твои рекорды.
-            </div>
-          ) : (
-            <ul className="divide-y divide-white/[0.04]">
-              {topExerciseIds.map((id) => {
-                const data = byExercise.get(id)!;
-                const name = exerciseNames.get(id) ?? '—';
-                return (
-                  <li key={id}>
-                    <Link
-                      href={`/progress/${id}`}
-                      className="block px-4 py-3.5 transition-colors active:bg-white/[0.03] hover:bg-white/[0.02]"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-[15px] font-semibold leading-tight tracking-tight truncate">
-                            {name}
-                          </h3>
-                          <div className="mt-1 flex items-baseline gap-2 tabular-nums">
-                            <span className="text-[18px] font-semibold leading-none">
-                              {data.maxWeight.toString().replace('.', ',')}
-                              <span className="ml-0.5 text-[11px] text-text-tertiary">
-                                кг
-                              </span>
+  // Re-fetch the sets window for working-weight aggregation. Suspense lets
+  // this run in parallel with `StatsAndHeatmap` instead of blocking it.
+  const { data: rawSets } = await supabase
+    .from('sets')
+    .select('weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id)')
+    .eq('sessions.user_id', userId)
+    .gte('completed_at', twelveWeeksAgo.toISOString());
+
+  const sets = rawSets ?? [];
+  const byExercise = new Map<string, { maxWeight: number; lastDate: Date }>();
+  for (const s of sets) {
+    if (!s.completed_at) continue;
+    const cur = byExercise.get(s.exercise_id);
+    if (!cur || s.weight_kg > cur.maxWeight) {
+      byExercise.set(s.exercise_id, {
+        maxWeight: s.weight_kg,
+        lastDate: new Date(s.completed_at),
+      });
+    }
+  }
+  const topExerciseIds = [...byExercise.entries()]
+    .sort((a, b) => b[1].maxWeight - a[1].maxWeight)
+    .slice(0, 6)
+    .map(([id]) => id);
+
+  const exerciseNames = new Map<string, string>();
+  if (topExerciseIds.length > 0) {
+    const { data: exRows } = await supabase
+      .from('exercises')
+      .select('id, name')
+      .in('id', topExerciseIds);
+    for (const ex of exRows ?? []) exerciseNames.set(ex.id, ex.name);
+  }
+
+  return (
+    <Reveal className="mt-3 pb-2">
+      <div className="overflow-hidden rounded-[22px] bg-bg-elevated">
+        {topExerciseIds.length === 0 ? (
+          <div className="px-4 py-10 text-center text-[13px] text-text-tertiary">
+            Пока нет записей. Запиши первый подход — и здесь появятся твои рекорды.
+          </div>
+        ) : (
+          <ul className="divide-y divide-white/[0.04]">
+            {topExerciseIds.map((id) => {
+              const data = byExercise.get(id)!;
+              const name = exerciseNames.get(id) ?? '—';
+              return (
+                <li key={id}>
+                  <Link
+                    href={`/progress/${id}`}
+                    className="block px-4 py-3.5 transition-colors active:bg-white/[0.03] hover:bg-white/[0.02]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-[15px] font-semibold leading-tight tracking-tight truncate">
+                          {name}
+                        </h3>
+                        <div className="mt-1 flex items-baseline gap-2 tabular-nums">
+                          <span className="text-[18px] font-semibold leading-none">
+                            {data.maxWeight.toString().replace('.', ',')}
+                            <span className="ml-0.5 text-[11px] text-text-tertiary">
+                              кг
                             </span>
-                            <span className="text-[11px] text-text-tertiary">
-                              обновлён {data.lastDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
-                            </span>
-                          </div>
+                          </span>
+                          <span className="text-[11px] text-text-tertiary">
+                            обновлён {data.lastDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                          </span>
                         </div>
-                        <ChevronRight
-                          size={16}
-                          className="shrink-0 text-text-tertiary"
-                        />
                       </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </Reveal>
-    </Stagger>
+                      <ChevronRight
+                        size={16}
+                        className="shrink-0 text-text-tertiary"
+                      />
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </Reveal>
   );
 }

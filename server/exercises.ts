@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { getSystemExercises } from './exercises-static';
 import type { ExerciseRow } from './types';
 
 interface ListOptions {
@@ -43,37 +44,56 @@ function matchedMuscleGroups(rawInput: string): string[] {
   return Array.from(out);
 }
 
-function escapeForPostgrestList(value: string): string {
-  // muscle_groups.cs.{value} — value must not contain a comma or closing brace.
-  return value.replace(/[,}{]/g, '');
+function applyListFilters(
+  rows: ExerciseRow[],
+  opts: ListOptions,
+): ExerciseRow[] {
+  let out = rows;
+
+  if (opts.search && opts.search.trim()) {
+    const trimmed = opts.search.trim().toLowerCase();
+    const muscleMatches = new Set(matchedMuscleGroups(trimmed));
+    out = out.filter((ex) => {
+      if (ex.name.toLowerCase().includes(trimmed)) return true;
+      if (muscleMatches.size > 0) {
+        for (const m of ex.muscle_groups) {
+          if (muscleMatches.has(m)) return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  if (opts.muscle && opts.muscle.trim()) {
+    const m = opts.muscle.trim();
+    out = out.filter((ex) => ex.muscle_groups.includes(m));
+  }
+
+  return out;
 }
 
 export async function listExercises(opts: ListOptions = {}): Promise<ExerciseRow[]> {
+  // System exercises come from a cached, non-cookie anon client so we avoid a
+  // per-request DB hit for the largest dataset. User-custom exercises must
+  // come from the cookie-bound auth client to honour RLS.
   const supabase = await createClient();
-  let query = supabase.from('exercises').select('*').order('name', { ascending: true });
+  const [systemRows, customResult] = await Promise.all([
+    getSystemExercises(),
+    supabase
+      .from('exercises')
+      .select('*')
+      .eq('is_system', false)
+      .order('name', { ascending: true }),
+  ]);
 
-  if (opts.search && opts.search.trim()) {
-    const trimmed = opts.search.trim();
-    const muscleMatches = matchedMuscleGroups(trimmed);
+  if (customResult.error) throw new Error(customResult.error.message);
+  const customRows = customResult.data ?? [];
 
-    if (muscleMatches.length > 0) {
-      const escaped = trimmed.replace(/[%,]/g, ' ');
-      const parts: string[] = [`name.ilike.%${escaped}%`];
-      for (const g of muscleMatches) {
-        parts.push(`muscle_groups.cs.{${escapeForPostgrestList(g)}}`);
-      }
-      query = query.or(parts.join(','));
-    } else {
-      query = query.ilike('name', `%${trimmed}%`);
-    }
-  }
-  if (opts.muscle && opts.muscle.trim()) {
-    query = query.contains('muscle_groups', [opts.muscle.trim()]);
-  }
+  const merged = [...systemRows, ...customRows].sort((a, b) =>
+    a.name.localeCompare(b.name, 'ru'),
+  );
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return data ?? [];
+  return applyListFilters(merged, opts);
 }
 
 export async function getExerciseById(id: string): Promise<ExerciseRow | null> {

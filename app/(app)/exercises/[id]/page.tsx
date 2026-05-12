@@ -33,18 +33,20 @@ export default async function ExerciseDetailPage({ params }: PageProps) {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const ex = await getExerciseById(id);
+  // All three are independent and can fan out in parallel.
+  const [ex, plan, personalBest] = await Promise.all([
+    getExerciseById(id),
+    getActivePlan(user.id),
+    getPersonalBest(id),
+  ]);
   if (!ex) notFound();
 
-  const plan = await getActivePlan(user.id);
   const dayOptions: AddToPlanDayOption[] = (plan?.days ?? []).map((d) => ({
     id: d.id,
     weekday: d.weekday,
     title: d.title,
     is_rest: d.is_rest,
   }));
-
-  const personalBest = await getPersonalBest(ex.id);
 
   const isSystem = ex.is_system ?? true;
   const heroImg = isSystem ? exerciseImageUrl(ex.name) : null;

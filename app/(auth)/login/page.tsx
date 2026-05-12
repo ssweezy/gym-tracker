@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Stagger, Reveal } from '@/components/motion/stagger';
@@ -99,6 +100,17 @@ export default function LoginPage() {
                   : 'Зарегистрироваться'}
             </motion.button>
           </form>
+
+          {mode === 'signin' && (
+            <div className="mt-3 text-center">
+              <Link
+                href="/forgot"
+                className="text-[13px] text-text-tertiary transition-colors hover:text-text-secondary"
+              >
+                Забыли пароль?
+              </Link>
+            </div>
+          )}
         </Reveal>
 
         <Reveal className="my-6 flex items-center gap-3">

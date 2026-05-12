@@ -23,7 +23,7 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isAuthRoute = path === '/login' || path.startsWith('/auth');
+  const isAuthRoute = path === '/login' || path === '/forgot' || path.startsWith('/auth');
   const isPublic = isAuthRoute || path === '/onboarding' || path.startsWith('/mockup');
 
   if (!user && !isPublic) {
