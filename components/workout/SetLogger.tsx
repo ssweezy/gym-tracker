@@ -11,7 +11,8 @@ import { useRestTimer } from './RestTimerContext';
 import { LoggedSetsList } from './LoggedSetsList';
 import { cn } from '@/lib/utils';
 import { validateFollowupSet, REP_RANGES, type RepCategory } from '@/lib/progression';
-import { logSet } from '@/server/sets';
+import { logSetWithOffline } from '@/lib/pwa/log-set';
+import { useOfflineQueue } from '@/components/pwa/OfflineQueueProvider';
 import { tapError, tapSuccess } from '@/lib/haptics';
 
 const categoryColor: Record<RepCategory, 'green' | 'crimson' | 'gray'> = {
@@ -91,6 +92,7 @@ export function SetLogger({
   const [optimistic, setOptimistic] = useState<PendingSet[]>([]);
   const [isPending, startTransition] = useTransition();
   const { startRest } = useRestTimer();
+  const { enqueue } = useOfflineQueue();
 
   const allDone = [...doneSets, ...optimistic];
   const firstSet = allDone.find((s) => s.is_first_set);
@@ -117,19 +119,33 @@ export function SetLogger({
     const target_reps = target.suggestion.target_reps;
 
     startTransition(async () => {
-      const res = await logSet({
-        session_id: sessionId,
-        exercise_id: exerciseId,
-        weight_kg: weight,
-        reps,
-        target_reps,
-        is_first_set: isFirstSet,
-        reached_failure: failure ? true : undefined,
-      });
+      const res = await logSetWithOffline(
+        {
+          session_id: sessionId,
+          exercise_id: exerciseId,
+          weight_kg: weight,
+          reps,
+          target_reps,
+          is_first_set: isFirstSet,
+          reached_failure: failure ? true : undefined,
+        },
+        { enqueue },
+      );
       if (res.error) {
         setOptimistic((prev) => prev.slice(0, -1));
         toast.error(res.error);
         tapError();
+      } else if (res.queued) {
+        // Set is sitting in IDB; revalidatePath did NOT fire, so we KEEP the
+        // optimistic copy in local state until the queue drains. Once the
+        // online drain succeeds, the parent re-renders with the row in
+        // `doneSets`, and we drop the duplicate on next submit.
+        toast.success(
+          'Подход сохранён локально — синканётся когда появится связь',
+        );
+        tapSuccess();
+        startRest(90);
+        setFailure(false);
       } else {
         // Server has persisted the set and revalidatePath has updated the
         // parent's `doneSets` prop. Drop the optimistic copy so we don't

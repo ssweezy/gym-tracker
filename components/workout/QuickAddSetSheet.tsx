@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { Sheet } from '@/components/ui/sheet';
 import { Stepper } from '@/components/ui/stepper';
 import { Toggle } from '@/components/ui/toggle';
-import { logSet } from '@/server/sets';
+import { logSetWithOffline } from '@/lib/pwa/log-set';
+import { useOfflineQueue } from '@/components/pwa/OfflineQueueProvider';
 
 interface QuickAddSetSheetProps {
   open: boolean;
@@ -38,6 +39,7 @@ export function QuickAddSetSheet({
   targetReps,
 }: QuickAddSetSheetProps) {
   const router = useRouter();
+  const { enqueue } = useOfflineQueue();
   const [weight, setWeight] = useState(initialWeight);
   const [reps, setReps] = useState(initialReps);
   const [failure, setFailure] = useState(false);
@@ -56,20 +58,29 @@ export function QuickAddSetSheet({
       return;
     }
     startTransition(async () => {
-      const res = await logSet({
-        session_id: sessionId,
-        exercise_id: exerciseId,
-        weight_kg: weight,
-        reps,
-        target_reps: targetReps ?? initialReps,
-        is_first_set: isFirstSet,
-        reached_failure: failure ? true : undefined,
-      });
+      const res = await logSetWithOffline(
+        {
+          session_id: sessionId,
+          exercise_id: exerciseId,
+          weight_kg: weight,
+          reps,
+          target_reps: targetReps ?? initialReps,
+          is_first_set: isFirstSet,
+          reached_failure: failure ? true : undefined,
+        },
+        { enqueue },
+      );
       if (res.error) {
         toast.error(res.error);
         return;
       }
-      toast.success('Подход записан');
+      if (res.queued) {
+        toast.success(
+          'Подход сохранён локально — синканётся когда появится связь',
+        );
+      } else {
+        toast.success('Подход записан');
+      }
       close();
       router.refresh();
     });
