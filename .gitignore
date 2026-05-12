@@ -44,3 +44,13 @@ next-env.d.ts
 
 # Claude Code session state
 /.claude/
+
+# Playwright artifacts
+.playwright-mcp/
+test-results/
+playwright-report/
+
+# Local debug screenshots & logs
+*.png
+!public/**/*.png
+dev.log
