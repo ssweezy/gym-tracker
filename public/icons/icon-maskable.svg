@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Full-bleed black for maskable: mask may crop edges, so use solid fill -->
+  <rect width="512" height="512" fill="#000000"/>
+  <!-- Glyph constrained to inner 80% safe zone (centered, ~410px wide) -->
+  <g transform="translate(256 256)">
+    <!-- Bar -->
+    <rect x="-94" y="-15" width="188" height="30" rx="6" fill="#34C759"/>
+    <!-- Left weights -->
+    <rect x="-132" y="-46" width="30" height="92" rx="6" fill="#34C759"/>
+    <rect x="-158" y="-69" width="26" height="138" rx="6" fill="#34C759"/>
+    <!-- Right weights -->
+    <rect x="102" y="-46" width="30" height="92" rx="6" fill="#34C759"/>
+    <rect x="132" y="-69" width="26" height="138" rx="6" fill="#34C759"/>
+  </g>
+</svg>

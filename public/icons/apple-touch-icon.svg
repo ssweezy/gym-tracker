@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+  <rect width="180" height="180" rx="40" fill="#000000"/>
+  <!-- Dumbbell glyph centered -->
+  <g transform="translate(90 90)">
+    <!-- Bar -->
+    <rect x="-41" y="-7" width="82" height="14" rx="3" fill="#34C759"/>
+    <!-- Left weights -->
+    <rect x="-58" y="-21" width="13" height="42" rx="3" fill="#34C759"/>
+    <rect x="-69" y="-30" width="11" height="60" rx="3" fill="#34C759"/>
+    <!-- Right weights -->
+    <rect x="45" y="-21" width="13" height="42" rx="3" fill="#34C759"/>
+    <rect x="58" y="-30" width="11" height="60" rx="3" fill="#34C759"/>
+  </g>
+</svg>

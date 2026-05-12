@@ -17,6 +17,7 @@ import { getActivePlan } from '@/server/plans';
 import { getFinishedSessionsWithDuration } from '@/server/sessions';
 import { logout } from '@/lib/auth/actions';
 import { Stagger, Reveal } from '@/components/motion/stagger';
+import { InstallAppCard } from '@/components/pwa/InstallAppCard';
 import { cn } from '@/lib/utils';
 
 const GOAL_LABEL: Record<string, string> = {
@@ -252,6 +253,10 @@ export default async function ProfilePage() {
           </div>
         </Reveal>
       )}
+
+      <Reveal className="mt-3">
+        <InstallAppCard />
+      </Reveal>
 
       <Reveal className="mt-7">
         <h3 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.06em] text-text-secondary">

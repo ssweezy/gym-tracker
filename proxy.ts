@@ -6,5 +6,11 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons|manifest|.*\\.(?:png|jpg|svg)).*)'],
+  matcher: [
+    // Skip Next.js internals, static assets, PWA artifacts (manifest, service worker,
+    // icons, offline shell). The SW MUST be reachable unauthenticated — otherwise
+    // the browser can't fetch it for the install criteria, and the offline page
+    // can't be cached.
+    '/((?!_next/static|_next/image|favicon.ico|icons|manifest|sw\\.js|offline\\.html|.*\\.(?:png|jpg|svg)).*)',
+  ],
 };
