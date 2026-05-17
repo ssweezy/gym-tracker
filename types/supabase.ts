@@ -45,12 +45,14 @@ export type Database = {
           description: string | null
           historical_fact: string | null
           id: string
+          image_url: string | null
           increment_kg: number | null
           is_system: boolean | null
           muscle_groups: string[]
           name: string
           sub_muscles: string[] | null
           technique_tips: string[] | null
+          technique_url: string | null
           user_id: string | null
         }
         Insert: {
@@ -58,12 +60,14 @@ export type Database = {
           description?: string | null
           historical_fact?: string | null
           id?: string
+          image_url?: string | null
           increment_kg?: number | null
           is_system?: boolean | null
           muscle_groups: string[]
           name: string
           sub_muscles?: string[] | null
           technique_tips?: string[] | null
+          technique_url?: string | null
           user_id?: string | null
         }
         Update: {
@@ -71,12 +75,14 @@ export type Database = {
           description?: string | null
           historical_fact?: string | null
           id?: string
+          image_url?: string | null
           increment_kg?: number | null
           is_system?: boolean | null
           muscle_groups?: string[]
           name?: string
           sub_muscles?: string[] | null
           technique_tips?: string[] | null
+          technique_url?: string | null
           user_id?: string | null
         }
         Relationships: []

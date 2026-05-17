@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowLeft, BookOpen, History, Trophy } from 'lucide-react';
+import { ArrowLeft, BookOpen, History, PlayCircle, Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getExerciseById } from '@/server/exercises';
 import { getActivePlan } from '@/server/plans';
@@ -17,7 +17,7 @@ import {
   type AddToPlanDayOption,
 } from '@/components/exercises/AddToPlanSheet';
 import { DeleteExerciseButton } from '@/components/exercises/DeleteExerciseButton';
-import { exerciseImageUrl } from '@/lib/exercise-images';
+import { exerciseImageUrl, techniqueSourceUrl } from '@/lib/exercise-images';
 import { getExerciseMuscleLabels } from '@/lib/exercise-muscles';
 import { RU_MONTHS } from '@/lib/date';
 
@@ -50,7 +50,15 @@ export default async function ExerciseDetailPage({ params }: PageProps) {
   }));
 
   const isSystem = ex.is_system ?? true;
-  const heroImg = isSystem ? exerciseImageUrl(ex.name) : null;
+  const heroImg = exerciseImageUrl(
+    ex.name,
+    (ex as { image_url?: string | null }).image_url,
+    ex.muscle_groups,
+  );
+  const techniqueUrl = techniqueSourceUrl(
+    ex.name,
+    (ex as { technique_url?: string | null }).technique_url,
+  );
   const heroHue = muscleHue(ex.muscle_groups[0] ?? 'chest');
 
   return (
@@ -204,6 +212,26 @@ export default async function ExerciseDetailPage({ params }: PageProps) {
             </li>
           ))}
         </ul>
+      </Reveal>
+
+      <Reveal className="mt-6">
+        <a
+          href={techniqueUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 rounded-2xl bg-white/[0.025] px-4 py-3.5 active:scale-[0.99] transition-transform"
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-crimson/15">
+            <PlayCircle size={18} className="text-accent-crimson" strokeWidth={2.2} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14px] font-semibold">Правильная техника</div>
+            <div className="text-[11.5px] text-text-tertiary truncate">
+              Источник с разбором выполнения
+            </div>
+          </div>
+          <ArrowLeft size={15} className="shrink-0 -rotate-[135deg] text-text-tertiary" />
+        </a>
       </Reveal>
 
       {ex.technique_tips && ex.technique_tips.length > 0 && (

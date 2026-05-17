@@ -58,7 +58,57 @@ const SLUG_BY_NAME: Record<string, string> = {
 
 const BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises';
 
-export function exerciseImageUrl(name: string): string | null {
+// Last-resort, muscle-appropriate photo so EVERY exercise (incl. custom
+// without an uploaded image) still shows a real picture, never just an avatar.
+const FALLBACK_SLUG_BY_MUSCLE: Record<string, string> = {
+  chest: 'Barbell_Bench_Press_-_Medium_Grip',
+  back: 'Bent_Over_Barbell_Row',
+  lats: 'Pullups',
+  shoulders: 'Standing_Military_Press',
+  biceps: 'Barbell_Curl',
+  triceps: 'EZ-Bar_Skullcrusher',
+  forearms: 'Standing_Dumbbell_Reverse_Curl',
+  quads: 'Barbell_Squat',
+  hamstrings: 'Romanian_Deadlift',
+  glutes: 'Barbell_Hip_Thrust',
+  calves: 'Standing_Calf_Raises',
+  abs: 'Crunches',
+  traps: 'Barbell_Shrug',
+  cardio: 'Stairmaster',
+};
+
+/**
+ * Resolve a photo for an exercise. Priority:
+ *  1. `dbImageUrl` — exercises.image_url (custom uploads + system backfill).
+ *  2. Legacy in-code Russian-name → slug map.
+ *  3. A representative photo for the exercise's primary muscle group.
+ * Always returns a usable URL when a muscle group is known.
+ */
+export function exerciseImageUrl(
+  name: string,
+  dbImageUrl?: string | null,
+  muscleGroups?: string[] | null,
+): string | null {
+  if (dbImageUrl) return dbImageUrl;
   const slug = SLUG_BY_NAME[name];
-  return slug ? `${BASE}/${slug}/0.jpg` : null;
+  if (slug) return `${BASE}/${slug}/0.jpg`;
+  const primary = muscleGroups?.[0];
+  if (primary && FALLBACK_SLUG_BY_MUSCLE[primary]) {
+    return `${BASE}/${FALLBACK_SLUG_BY_MUSCLE[primary]}/0.jpg`;
+  }
+  return null;
+}
+
+/**
+ * External "correct technique" source. Uses a stored URL when present
+ * (custom exercises may set their own), otherwise a YouTube search for the
+ * Russian exercise name + «техника» — always resolves to relevant videos.
+ */
+export function techniqueSourceUrl(
+  name: string,
+  storedUrl?: string | null,
+): string {
+  if (storedUrl && storedUrl.trim()) return storedUrl.trim();
+  const q = encodeURIComponent(`${name} техника выполнения`);
+  return `https://www.youtube.com/results?search_query=${q}`;
 }

@@ -130,7 +130,11 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
           <div className="mt-3 overflow-x-auto pl-5 pr-3 pb-2 [&::-webkit-scrollbar]:hidden">
             <div className="flex gap-2.5">
               {inPlan.map((ex, idx) => {
-                const img = (ex.is_system ?? true) ? exerciseImageUrl(ex.name) : null;
+                const img = exerciseImageUrl(
+                  ex.name,
+                  (ex as { image_url?: string | null }).image_url,
+                  ex.muscle_groups,
+                );
                 const hue = muscleHue(ex.muscle_groups[0] ?? 'chest');
                 // First two featured cards are above the fold — prioritize them
                 // so LCP doesn't wait on lazy-loaded remote thumbnails.
@@ -214,11 +218,32 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
                     href={`/exercises/${ex.id}`}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/[0.03] transition-colors"
                   >
-                    <ExerciseAvatar
-                      name={ex.name}
-                      muscleGroups={ex.muscle_groups}
-                      isSystem={ex.is_system ?? true}
-                    />
+                    {(() => {
+                      const thumb = exerciseImageUrl(
+                        ex.name,
+                        (ex as { image_url?: string | null }).image_url,
+                        ex.muscle_groups,
+                      );
+                      return thumb ? (
+                        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/[0.04]">
+                          <Image
+                            src={thumb}
+                            alt={ex.name}
+                            fill
+                            sizes="48px"
+                            className="object-cover"
+                            unoptimized
+                            loading="lazy"
+                          />
+                        </div>
+                      ) : (
+                        <ExerciseAvatar
+                          name={ex.name}
+                          muscleGroups={ex.muscle_groups}
+                          isSystem={ex.is_system ?? true}
+                        />
+                      );
+                    })()}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="text-[15px] font-semibold leading-tight tracking-tight truncate">

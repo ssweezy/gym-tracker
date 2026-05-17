@@ -1,11 +1,14 @@
 'use client';
 
 import { useMemo, useRef, useState, useTransition } from 'react';
-import { Check, Plus, Search, Sparkles, X } from 'lucide-react';
+import Image from 'next/image';
+import { Check, ImagePlus, Loader2, Plus, Search, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Stepper } from '@/components/ui/stepper';
 import { MUSCLE_LABELS, type MuscleGroup } from '@/lib/volume';
+import { suggestedSubMuscles } from '@/lib/sub-muscles';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { tapMedium, tapError, tapSuccess, tapSoft } from '@/lib/haptics';
 import { createCustomExerciseAction } from './actions';
@@ -25,6 +28,8 @@ const MUSCLE_OPTIONS: MuscleGroup[] = [
   'abs',
 ];
 
+const MAX_PHOTO_BYTES = 3 * 1024 * 1024; // 3 MB — also enforced by Storage.
+
 export interface LibraryExercise {
   id: string;
   name: string;
@@ -43,13 +48,15 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
   const [description, setDescription] = useState('');
   const [tips, setTips] = useState<string[]>(['']);
   const [historicalFact, setHistoricalFact] = useState('');
-  // Carried from a library pick so the precise sub-muscle tags survive.
   const [subMuscles, setSubMuscles] = useState<string[]>([]);
+  const [customSub, setCustomSub] = useState('');
+  const [techniqueUrl, setTechniqueUrl] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [fromLibrary, setFromLibrary] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  // Hard guard against double-submit. `isPending` from useTransition flips
-  // async, so a rapid second tap can fire before the disabled state lands.
   const submittingRef = useRef(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // --- Library picker state ---
   const [libMuscle, setLibMuscle] = useState<MuscleGroup | null>(null);
@@ -58,23 +65,35 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
   const libFiltered = useMemo(() => {
     const q = libQuery.trim().toLowerCase();
     return library
-      .filter((ex) =>
-        libMuscle ? ex.muscle_groups.includes(libMuscle) : true,
-      )
+      .filter((ex) => (libMuscle ? ex.muscle_groups.includes(libMuscle) : true))
       .filter((ex) => {
         if (!q) return true;
         if (ex.name.toLowerCase().includes(q)) return true;
-        return (ex.sub_muscles ?? []).some((s) =>
-          s.toLowerCase().includes(q),
-        );
+        return (ex.sub_muscles ?? []).some((s) => s.toLowerCase().includes(q));
       })
       .slice(0, 40);
   }, [library, libMuscle, libQuery]);
+
+  const subSuggestions = useMemo(
+    () => suggestedSubMuscles(muscles).filter((s) => !subMuscles.includes(s)),
+    [muscles, subMuscles],
+  );
 
   function toggleMuscle(m: MuscleGroup) {
     setMuscles((prev) =>
       prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m],
     );
+  }
+
+  function addSub(s: string) {
+    const v = s.trim();
+    if (!v) return;
+    tapSoft();
+    setSubMuscles((prev) => (prev.includes(v) ? prev : [...prev, v]));
+  }
+
+  function removeSub(s: string) {
+    setSubMuscles((prev) => prev.filter((x) => x !== s));
   }
 
   function pickFromLibrary(ex: LibraryExercise) {
@@ -87,17 +106,67 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
     );
     setIncrement(ex.increment_kg);
     setDescription(ex.description ?? '');
-    setTips(ex.technique_tips && ex.technique_tips.length > 0 ? ex.technique_tips : ['']);
+    setTips(
+      ex.technique_tips && ex.technique_tips.length > 0
+        ? ex.technique_tips
+        : [''],
+    );
     setHistoricalFact(ex.historical_fact ?? '');
     setSubMuscles(ex.sub_muscles ?? []);
     setFromLibrary(ex.name);
     toast.success('Заполнено из библиотеки — отредактируйте при желании');
   }
 
+  async function handleFile(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      tapError();
+      toast.error('Можно загрузить только изображение');
+      return;
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      tapError();
+      toast.error('Файл больше 3 МБ — выберите фото поменьше');
+      return;
+    }
+    setUploading(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Не авторизован');
+        return;
+      }
+      const ext = (file.name.split('.').pop() || 'jpg')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+      const path = `${user.id}/${crypto.randomUUID()}.${ext || 'jpg'}`;
+      const { error } = await supabase.storage
+        .from('exercise-photos')
+        .upload(path, file, { upsert: false, contentType: file.type });
+      if (error) {
+        tapError();
+        toast.error(error.message);
+        return;
+      }
+      const { data } = supabase.storage
+        .from('exercise-photos')
+        .getPublicUrl(path);
+      setImageUrl(data.publicUrl);
+      tapSuccess();
+      toast.success('Фото загружено');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   function submit() {
     if (submittingRef.current) return;
     submittingRef.current = true;
     tapMedium();
+    const techniqueClean = techniqueUrl.trim();
     startTransition(async () => {
       const res = await createCustomExerciseAction({
         name,
@@ -107,6 +176,10 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         technique_tips: tips.filter((t) => t.trim()),
         historical_fact: historicalFact || undefined,
         sub_muscles: subMuscles.length > 0 ? subMuscles : undefined,
+        image_url: imageUrl || undefined,
+        technique_url: /^https?:\/\//i.test(techniqueClean)
+          ? techniqueClean
+          : undefined,
       });
       if (res?.error) {
         submittingRef.current = false;
@@ -119,13 +192,7 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
   }
 
   return (
-    <form
-      // Never auto-submit. Pressing Enter in any field (name, technique tip)
-      // used to fire `submit()` and silently create the exercise — the
-      // "spontaneous save" bug. Creation is now ONLY via the explicit button.
-      onSubmit={(e) => e.preventDefault()}
-      className="space-y-6"
-    >
+    <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
       {/* ── Library picker ─────────────────────────────────────────── */}
       <div className="rounded-[22px] border border-white/[0.06] bg-white/[0.02] p-4">
         <div className="flex items-center gap-2">
@@ -234,7 +301,66 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         </div>
       )}
 
-      {/* ── Form fields ────────────────────────────────────────────── */}
+      {/* ── Photo ──────────────────────────────────────────────────── */}
+      <div>
+        <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+          Фото упражнения
+        </label>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            handleFile(e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
+        {imageUrl ? (
+          <div className="relative mt-2 overflow-hidden rounded-2xl bg-white/[0.04]" style={{ aspectRatio: '4/3' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <Image
+              src={imageUrl}
+              alt="Фото упражнения"
+              fill
+              sizes="100vw"
+              unoptimized
+              className="object-cover"
+            />
+            <button
+              type="button"
+              onClick={() => setImageUrl('')}
+              aria-label="Удалить фото"
+              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm active:scale-90"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="mt-2 flex h-28 w-full flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/[0.10] text-text-tertiary active:scale-[0.99] transition-transform disabled:opacity-60"
+          >
+            {uploading ? (
+              <>
+                <Loader2 size={20} className="animate-spin" />
+                <span className="text-[12px] font-medium">Загрузка…</span>
+              </>
+            ) : (
+              <>
+                <ImagePlus size={20} />
+                <span className="text-[12px] font-medium">
+                  Загрузить фото · до 3 МБ
+                </span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* ── Name ───────────────────────────────────────────────────── */}
       <div>
         <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           Название
@@ -248,6 +374,7 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         />
       </div>
 
+      {/* ── Muscle groups ──────────────────────────────────────────── */}
       <div>
         <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           Группы мышц
@@ -274,6 +401,76 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         </div>
       </div>
 
+      {/* ── Sub-muscles ────────────────────────────────────────────── */}
+      <div>
+        <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+          Подгруппы мышц
+        </label>
+        <p className="mt-1 text-[11.5px] text-text-tertiary">
+          Что именно прокачивает — например «Плечи / задняя дельта»
+        </p>
+        {subMuscles.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {subMuscles.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => removeSub(s)}
+                className="flex items-center gap-1.5 rounded-full bg-accent-green/15 px-3 py-1.5 text-[12.5px] font-semibold text-accent-green ring-1 ring-accent-green/40 active:scale-95"
+              >
+                {s}
+                <X size={12} strokeWidth={2.6} />
+              </button>
+            ))}
+          </div>
+        )}
+        {subSuggestions.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {subSuggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => addSub(s)}
+                className="rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] font-medium text-text-secondary hover:bg-white/[0.08] active:scale-95 transition-all"
+              >
+                + {s}
+              </button>
+            ))}
+          </div>
+        )}
+        {muscles.length === 0 && subMuscles.length === 0 && (
+          <p className="mt-2 text-[12px] text-text-tertiary">
+            Сначала выберите группу мышц выше
+          </p>
+        )}
+        <div className="mt-2 flex gap-2">
+          <Input
+            value={customSub}
+            onChange={(e) => setCustomSub(e.target.value)}
+            placeholder="Своя подгруппа"
+            className="h-11"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addSub(customSub);
+                setCustomSub('');
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              addSub(customSub);
+              setCustomSub('');
+            }}
+            className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] px-4 text-[13px] font-semibold text-text-primary active:scale-95"
+          >
+            Добавить
+          </button>
+        </div>
+      </div>
+
+      {/* ── Increment ──────────────────────────────────────────────── */}
       <div>
         <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           Шаг веса (кг)
@@ -291,6 +488,7 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         </div>
       </div>
 
+      {/* ── Description ────────────────────────────────────────────── */}
       <div>
         <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           Описание
@@ -304,6 +502,7 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         />
       </div>
 
+      {/* ── Technique ──────────────────────────────────────────────── */}
       <div>
         <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           Техника
@@ -346,6 +545,21 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
         </div>
       </div>
 
+      {/* ── Technique source link ──────────────────────────────────── */}
+      <div>
+        <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+          Ссылка на технику (опционально)
+        </label>
+        <Input
+          value={techniqueUrl}
+          onChange={(e) => setTechniqueUrl(e.target.value)}
+          placeholder="https://youtube.com/…"
+          className="mt-2"
+          inputMode="url"
+        />
+      </div>
+
+      {/* ── Historical fact ────────────────────────────────────────── */}
       <div>
         <label className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           Исторический факт (опционально)
@@ -362,7 +576,9 @@ export function NewExerciseForm({ library }: { library: LibraryExercise[] }) {
       <button
         type="button"
         onClick={submit}
-        disabled={isPending || !name.trim() || muscles.length === 0}
+        disabled={
+          isPending || uploading || !name.trim() || muscles.length === 0
+        }
         className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-black active:scale-[0.985] transition-transform disabled:opacity-50"
         style={{
           height: 52,

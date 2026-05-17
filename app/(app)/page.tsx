@@ -19,6 +19,7 @@ import { ActivityRings } from '@/components/workout/ActivityRings';
 import { SessionControls } from '@/components/workout/SessionControls';
 import { SessionTimer } from '@/components/workout/SessionTimer';
 import { StartWorkoutButton } from '@/components/workout/StartWorkoutButton';
+import { WeekSchedule } from '@/components/workout/WeekSchedule';
 import {
   PlanExerciseFlow,
   type PlanExerciseFlowItem,
@@ -598,6 +599,8 @@ async function TodayBody({ userId, today }: { userId: string; today: Date }) {
         <Reveal className="mt-3">
           <StartWorkoutButton planDayId={null} variant="secondary" />
         </Reveal>
+
+        <WeekSchedule days={plan.days} />
       </>
     );
   }
@@ -701,6 +704,8 @@ async function TodayBody({ userId, today }: { userId: string; today: Date }) {
           </Link>
         </Reveal>
       )}
+
+      <WeekSchedule days={plan.days} />
     </>
   );
 }
