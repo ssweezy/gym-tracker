@@ -41,9 +41,15 @@ async function fetchSystemExercises(): Promise<ExerciseRow[]> {
  * the literal tag `system-exercises` and revalidates every hour. Server actions
  * that mutate the system catalog (none currently) should call
  * `revalidateTag('system-exercises')`.
+ *
+ * The `v3` key segment is a manual cache-buster: bump it whenever a migration
+ * changes the system-exercise columns (added image_url / sub_muscles /
+ * technique_url), otherwise the hour-long cache keeps serving stale rows
+ * missing the new fields — which made list thumbnails fall back to the
+ * muscle-generic photo while the detail page showed the real one.
  */
 export const getSystemExercises = unstable_cache(
   fetchSystemExercises,
-  ['system-exercises'],
+  ['system-exercises', 'v3'],
   { revalidate: 3600, tags: ['system-exercises'] },
 );

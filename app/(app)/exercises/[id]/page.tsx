@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
-import Link from 'next/link';
 import Image from 'next/image';
+import { BackLink } from '@/components/nav/back';
 import { ArrowLeft, BookOpen, History, PlayCircle, Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getExerciseById } from '@/server/exercises';
@@ -64,12 +64,7 @@ export default async function ExerciseDetailPage({ params }: PageProps) {
   return (
     <Stagger className="px-5 pt-9">
       <Reveal>
-        <Link
-          href="/exercises"
-          className="inline-flex items-center gap-1 text-[13px] font-medium text-text-tertiary active:text-text-secondary"
-        >
-          <ArrowLeft size={14} /> Тренажёры
-        </Link>
+        <BackLink fallback="/exercises" label="Тренажёры" />
       </Reveal>
 
       <Reveal className="mt-5">

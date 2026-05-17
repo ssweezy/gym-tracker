@@ -1,7 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import { BackLink } from '@/components/nav/back';
 import { getPlanDay } from '@/server/plans';
 import { listExercises } from '@/server/exercises';
 import { Stagger, Reveal } from '@/components/motion/stagger';
@@ -39,12 +38,7 @@ export default async function PlanEditPage({ params }: PageProps) {
   return (
     <Stagger className="px-5 pt-9">
       <Reveal>
-        <Link
-          href="/plan"
-          className="inline-flex items-center gap-1 text-[13px] font-medium text-text-tertiary active:text-text-secondary"
-        >
-          <ArrowLeft size={14} /> План
-        </Link>
+        <BackLink fallback="/plan" label="План" />
       </Reveal>
 
       <Reveal className="mt-2">

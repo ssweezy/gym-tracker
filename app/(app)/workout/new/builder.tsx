@@ -2,9 +2,9 @@
 
 import Image from 'next/image';
 import { useMemo, useState, useTransition } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Check, Layers, Play, Plus, Search, X } from 'lucide-react';
+import { Check, Layers, Play, Plus, Search, X } from 'lucide-react';
+import { BackLink } from '@/components/nav/back';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -230,12 +230,7 @@ export function AdHocBuilder({ exercises, templates }: AdHocBuilderProps) {
     <div className="pb-[140px]">
       <Stagger className="px-5 pt-9">
         <Reveal>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-[13px] font-medium text-text-tertiary active:text-text-secondary"
-          >
-            <ArrowLeft size={14} /> Назад
-          </Link>
+          <BackLink fallback="/" label="Назад" />
         </Reveal>
 
         <Reveal className="mt-2">

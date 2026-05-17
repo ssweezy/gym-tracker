@@ -1,6 +1,5 @@
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { Stagger, Reveal } from '@/components/motion/stagger';
+import { BackLink } from '@/components/nav/back';
 import { listExercises } from '@/server/exercises';
 import { NewExerciseForm, type LibraryExercise } from './form';
 
@@ -25,12 +24,7 @@ export default async function NewExercisePage() {
   return (
     <Stagger className="px-5 pt-9">
       <Reveal>
-        <Link
-          href="/exercises"
-          className="inline-flex items-center gap-1 text-[13px] font-medium text-text-tertiary active:text-text-secondary"
-        >
-          <ArrowLeft size={14} /> Тренажёры
-        </Link>
+        <BackLink fallback="/exercises" label="Тренажёры" />
       </Reveal>
       <Reveal className="mt-2">
         <h1

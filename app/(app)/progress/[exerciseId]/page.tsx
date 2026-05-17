@@ -1,8 +1,8 @@
 import { Suspense } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
 import { notFound, redirect } from 'next/navigation';
-import { ArrowLeft, Trophy, Calendar, Layers, Activity } from 'lucide-react';
+import { Trophy, Calendar, Layers, Activity } from 'lucide-react';
+import { BackLink } from '@/components/nav/back';
 import { createClient } from '@/lib/supabase/server';
 import { getExerciseById } from '@/server/exercises';
 import {
@@ -61,12 +61,7 @@ export default async function ExerciseProgressDetailPage({ params }: PageProps) 
   return (
     <Stagger className="px-5 pt-9">
       <Reveal>
-        <Link
-          href="/progress"
-          className="inline-flex items-center gap-1 text-[13px] font-medium text-text-tertiary active:text-text-secondary"
-        >
-          <ArrowLeft size={14} /> Прогресс
-        </Link>
+        <BackLink fallback="/progress" label="Прогресс" />
       </Reveal>
 
       <Reveal className="mt-5">
