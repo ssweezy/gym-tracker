@@ -12,6 +12,7 @@ import {
   type BreakdownDay,
 } from '@/components/plan/WeeklyVolumePanel';
 import { ChangePlanButton } from '@/components/plan/ChangePlanButton';
+import { WeekSchedule } from '@/components/workout/WeekSchedule';
 import {
   WeekTimelineSkeleton,
   VolumePanelSkeleton,
@@ -235,6 +236,8 @@ async function PlanBody({
           </Link>
         </Reveal>
       )}
+
+      <WeekSchedule days={plan.days} />
 
       <Reveal className="mt-7 flex items-baseline justify-between">
         <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-text-secondary">
