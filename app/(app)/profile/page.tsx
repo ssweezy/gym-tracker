@@ -19,6 +19,7 @@ import {
 import { createClient } from '@/lib/supabase/server';
 import { getActivePlan } from '@/server/plans';
 import { getFinishedSessionsWithDuration } from '@/server/sessions';
+import { listWorkoutHistory } from '@/server/history';
 import { logout } from '@/lib/auth/actions';
 import { Stagger, Reveal } from '@/components/motion/stagger';
 import { InstallAppCard } from '@/components/pwa/InstallAppCard';
@@ -45,6 +46,7 @@ export default async function ProfilePage() {
     sessionCountResp,
     setsAggResp,
     finishedWithDuration,
+    recentHistory,
   ] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
     getActivePlan(user.id),
@@ -60,6 +62,7 @@ export default async function ProfilePage() {
     // Total cumulative training time across all finished sessions (last 2y
     // window is plenty for the foreseeable user lifetime here).
     getFinishedSessionsWithDuration(365 * 2),
+    listWorkoutHistory(3),
   ]);
 
   const profile = profileResp.data;
@@ -314,6 +317,55 @@ export default async function ProfilePage() {
           </Link>
         </Reveal>
       )}
+
+      <Reveal className="mt-3">
+        <Link
+          href="/progress"
+          className="block w-full overflow-hidden rounded-[22px] bg-bg-elevated p-5 text-left active:scale-[0.99] transition-transform"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <History size={13} className="text-accent-green" strokeWidth={2.4} />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-green">
+                История тренировок
+              </span>
+            </div>
+            <ChevronRight size={16} className="shrink-0 text-text-tertiary" />
+          </div>
+          {recentHistory.length === 0 ? (
+            <p className="mt-3 text-[13px] text-text-tertiary">
+              Пока нет завершённых тренировок
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {recentHistory.map((w) => (
+                <li
+                  key={w.id}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-[14px] font-semibold tracking-tight">
+                      {w.title}
+                    </div>
+                    <div className="text-[11.5px] text-text-tertiary">
+                      {new Date(w.finished_at).toLocaleDateString('ru-RU', {
+                        day: 'numeric',
+                        month: 'long',
+                      })}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-[11.5px] text-text-tertiary tabular-nums">
+                    {w.set_count} подх. ·{' '}
+                    {w.duration_min < 60
+                      ? `${w.duration_min} мин`
+                      : `${Math.round(w.duration_min / 60)} ч`}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Link>
+      </Reveal>
 
       <Reveal className="mt-3">
         <InstallAppCard />

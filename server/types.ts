@@ -26,6 +26,18 @@ export interface SessionMeta {
   setOverrides?: Record<string, number>;
 }
 
+export interface WorkoutHistoryItem {
+  id: string;
+  started_at: string;
+  finished_at: string;
+  duration_min: number;
+  title: string;
+  set_count: number;
+  tonnage_kg: number;
+  /** Distinct exercise names performed in this session. */
+  exercises: string[];
+}
+
 export type PlanPreset = 'fullbody3' | 'upper_lower' | 'split3';
 
 export type PlanDayInsert = Omit<TablesInsert<'plan_days'>, 'plan_id'>;

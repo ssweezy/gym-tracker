@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { ChevronRight, Clock, Dumbbell, Flame, TrendingUp } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getFinishedSessionsWithDuration } from '@/server/sessions';
+import { listWorkoutHistory } from '@/server/history';
+import { WorkoutHistory } from '@/components/progress/WorkoutHistory';
 import { Stagger, Reveal } from '@/components/motion/stagger';
 import {
   ProgressStatsSkeleton,
@@ -73,8 +75,17 @@ export default async function ProgressPage() {
       <Suspense fallback={<ProgressRecordsSkeleton />}>
         <WorkingWeights userId={user.id} />
       </Suspense>
+
+      <Suspense fallback={<ProgressRecordsSkeleton />}>
+        <WorkoutHistorySection />
+      </Suspense>
     </Stagger>
   );
+}
+
+async function WorkoutHistorySection() {
+  const items = await listWorkoutHistory(50);
+  return <WorkoutHistory items={items} />;
 }
 
 async function StatsAndHeatmap({
