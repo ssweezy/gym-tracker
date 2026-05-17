@@ -82,9 +82,11 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
   }, [active, paused, remainingMs]);
 
   const startRest = useCallback((seconds: number) => {
+    // Rest is never shorter than 3 minutes.
+    const secs = Math.max(180, seconds);
     setState({
-      endsAt: Date.now() + seconds * 1000,
-      duration: seconds,
+      endsAt: Date.now() + secs * 1000,
+      duration: secs,
       pausedAt: null,
     });
   }, []);

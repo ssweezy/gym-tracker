@@ -145,7 +145,7 @@ export function SetLogger({
           'Подход сохранён локально — синканётся когда появится связь',
         );
         tapSuccess();
-        startRest(90);
+        startRest(180);
         setFailure(false);
       } else {
         // Server has persisted the set and revalidatePath has updated the
@@ -154,7 +154,7 @@ export function SetLogger({
         setOptimistic([]);
         toast.success('Подход записан');
         tapSuccess();
-        startRest(90);
+        startRest(180);
         setFailure(false);
       }
     });
@@ -245,7 +245,7 @@ export function SetLogger({
           )}
           <div className="flex gap-2">
             <button
-              onClick={() => startRest(90)}
+              onClick={() => startRest(180)}
               className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-white/[0.05] text-[14px] font-semibold text-text-primary active:scale-[0.985]"
             >
               <Timer size={15} /> Отдых
