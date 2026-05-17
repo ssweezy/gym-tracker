@@ -12,6 +12,7 @@ const schema = z.object({
   description: z.string().max(800).optional(),
   technique_tips: z.array(z.string()).optional(),
   historical_fact: z.string().max(800).optional(),
+  sub_muscles: z.array(z.string()).optional(),
 });
 
 export interface CreateExerciseFormInput {
@@ -21,6 +22,7 @@ export interface CreateExerciseFormInput {
   description?: string;
   technique_tips?: string[];
   historical_fact?: string;
+  sub_muscles?: string[];
 }
 
 export async function createCustomExerciseAction(
@@ -49,6 +51,10 @@ export async function createCustomExerciseAction(
     description: parsed.data.description?.trim() || null,
     technique_tips: tips.length > 0 ? tips : null,
     historical_fact: parsed.data.historical_fact?.trim() || null,
+    sub_muscles:
+      parsed.data.sub_muscles && parsed.data.sub_muscles.length > 0
+        ? parsed.data.sub_muscles
+        : null,
     is_system: false,
     user_id: user.id,
   });

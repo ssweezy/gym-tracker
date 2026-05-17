@@ -13,6 +13,7 @@ const MUSCLE_HUE: Record<MuscleGroup, number> = {
   glutes: 28,
   calves: 50,
   abs: 12,
+  traps: 200,
   cardio: 0,
 };
 

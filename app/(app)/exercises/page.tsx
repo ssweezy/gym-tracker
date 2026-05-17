@@ -26,6 +26,8 @@ const FILTER_ORDER: MuscleGroup[] = [
   'shoulders',
   'biceps',
   'triceps',
+  'forearms',
+  'traps',
   'quads',
   'hamstrings',
   'glutes',
@@ -69,42 +71,52 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
   const inPlanTotal = exercises.length;
 
   return (
-    <Stagger className="pt-9">
-      <Reveal className="px-5">
-        <div className="flex items-baseline justify-between">
-          <div className="text-[13px] font-medium text-text-tertiary tabular-nums">
-            {inPlanTotal} упражнений · {inPlan.length} в плане
+    <div className="pt-9">
+      <Stagger className="px-5">
+        <Reveal>
+          <div className="flex items-baseline justify-between">
+            <div className="text-[13px] font-medium text-text-tertiary tabular-nums">
+              {inPlanTotal} упражнений · {inPlan.length} в плане
+            </div>
           </div>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <h1
+              className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
+              style={{ fontFeatureSettings: '"ss01"' }}
+            >
+              Тренажёры
+            </h1>
+            <Link
+              href="/exercises/new"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black active:scale-95 transition-transform"
+              aria-label="Создать упражнение"
+              style={{
+                background: 'linear-gradient(180deg, #3DD668 0%, #2BB955 100%)',
+                boxShadow: '0 6px 18px -6px rgba(52,199,89,0.55)',
+              }}
+            >
+              <Plus size={20} strokeWidth={2.6} />
+            </Link>
+          </div>
+        </Reveal>
+      </Stagger>
+
+      {/* Sticky search + filters. Kept OUTSIDE the Framer-Motion <Reveal>
+          transform — a transformed ancestor becomes the sticky containing
+          block, which is why list rows used to slide over the field. */}
+      <div
+        className="sticky z-30 mt-5 border-b border-white/[0.06] bg-bg/85 pb-3 pt-3 backdrop-blur-xl"
+        style={{ top: 'env(safe-area-inset-top, 0px)' }}
+      >
+        <div className="px-5">
+          <ExerciseSearchBar initial={q ?? ''} />
         </div>
-        <div className="mt-2 flex items-end justify-between gap-3">
-          <h1
-            className="text-[34px] font-bold leading-[1.05] tracking-[-0.022em]"
-            style={{ fontFeatureSettings: '"ss01"' }}
-          >
-            Тренажёры
-          </h1>
-          <Link
-            href="/exercises/new"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black active:scale-95 transition-transform"
-            aria-label="Создать упражнение"
-            style={{
-              background: 'linear-gradient(180deg, #3DD668 0%, #2BB955 100%)',
-              boxShadow: '0 6px 18px -6px rgba(52,199,89,0.55)',
-            }}
-          >
-            <Plus size={20} strokeWidth={2.6} />
-          </Link>
+        <div className="mt-3">
+          <MuscleFilterChips chips={chips} />
         </div>
-      </Reveal>
+      </div>
 
-      <Reveal className="mt-5 px-5">
-        <ExerciseSearchBar initial={q ?? ''} />
-      </Reveal>
-
-      <Reveal className="mt-4">
-        <MuscleFilterChips chips={chips} />
-      </Reveal>
-
+      <Stagger className="pt-4">
       {inPlan.length > 0 && (
         <Reveal className="mt-7">
           <div className="flex items-baseline justify-between px-5">
@@ -164,7 +176,11 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
                         {ex.name}
                       </h3>
                       <div className="mt-2 text-[11px] text-text-tertiary truncate">
-                        {getExerciseMuscleLabels(ex.name, ex.muscle_groups).join(' · ')}
+                        {getExerciseMuscleLabels(
+                          ex.name,
+                          ex.muscle_groups,
+                          (ex as { sub_muscles?: string[] | null }).sub_muscles,
+                        ).join(' · ')}
                       </div>
                     </div>
                   </Link>
@@ -221,7 +237,11 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
                         )}
                       </div>
                       <div className="mt-0.5 text-[11.5px] text-text-tertiary truncate">
-                        {getExerciseMuscleLabels(ex.name, ex.muscle_groups).join(' · ')}
+                        {getExerciseMuscleLabels(
+                          ex.name,
+                          ex.muscle_groups,
+                          (ex as { sub_muscles?: string[] | null }).sub_muscles,
+                        ).join(' · ')}
                       </div>
                     </div>
                     <ChevronRight size={16} className="text-text-tertiary shrink-0" />
@@ -232,6 +252,7 @@ export default async function ExercisesPage({ searchParams }: PageProps) {
           )}
         </div>
       </Reveal>
-    </Stagger>
+      </Stagger>
+    </div>
   );
 }

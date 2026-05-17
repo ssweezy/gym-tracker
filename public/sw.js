@@ -1,7 +1,7 @@
 /* Gym Tracker service worker — MVP app-shell + offline navigation fallback */
 /* eslint-disable */
 
-const CACHE_VERSION = 'gym-v1';
+const CACHE_VERSION = 'gym-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -57,6 +57,26 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
+
+  // Exercise images live on the GitHub raw CDN. They're immutable per slug,
+  // so cache-first with a background refresh: instant after first view and
+  // available offline. Kept in its own long-lived cache.
+  if (url.hostname === 'raw.githubusercontent.com') {
+    event.respondWith(
+      caches.open(`${CACHE_VERSION}-images`).then((cache) =>
+        cache.match(req).then((cached) => {
+          const network = fetch(req)
+            .then((res) => {
+              if (res && res.ok) cache.put(req, res.clone());
+              return res;
+            })
+            .catch(() => cached);
+          return cached || network;
+        }),
+      ),
+    );
+    return;
+  }
 
   // Same-origin only; cross-origin (CDN/API) passes through untouched.
   if (url.origin !== self.location.origin) return;

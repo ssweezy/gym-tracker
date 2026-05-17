@@ -27,6 +27,7 @@ import {
   TodayHeroSkeleton,
   TodayExerciseListSkeleton,
 } from '@/components/skeletons/Skeletons';
+import type { SessionMeta } from '@/server/types';
 import { suggestNext, type RepCategory } from '@/lib/progression';
 import { MUSCLE_LABELS, type MuscleGroup } from '@/lib/volume';
 import { formatRuDate, RU_WEEKDAY_LONG, toSchemaWeekday } from '@/lib/date';
@@ -198,7 +199,19 @@ async function TodayBody({ userId, today }: { userId: string; today: Date }) {
       redirect('/');
     }
 
-    const totalSets = planDay.exercises.reduce((s, pe) => s + pe.target_sets, 0);
+    // Per-session ad-hoc state: skipped exercises + set-count overrides.
+    const meta = ((currentSession as { meta?: SessionMeta }).meta ??
+      {}) as SessionMeta;
+    const skippedSet = new Set(meta.skipped ?? []);
+    const setOverrides = meta.setOverrides ?? {};
+    const effectiveTargetSets = (pe: { id: string; target_sets: number }) =>
+      setOverrides[pe.id] ?? pe.target_sets;
+
+    // Skipped exercises are excluded from the workout total so progress can
+    // still reach 100%.
+    const totalSets = planDay.exercises
+      .filter((pe) => !skippedSet.has(pe.id))
+      .reduce((s, pe) => s + effectiveTargetSets(pe), 0);
     const doneSets = setsRows.length;
 
     const setsByExercise = new Map<string, typeof setsRows>();
@@ -231,7 +244,7 @@ async function TodayBody({ userId, today }: { userId: string; today: Date }) {
           exerciseId: pe.exercise_id,
           exerciseName: pe.exercise.name,
           category: pe.rep_category as RepCategory,
-          targetSets: pe.target_sets,
+          targetSets: effectiveTargetSets(pe),
           incrementKg: pe.exercise.increment_kg ?? 2.5,
           doneSets: sets.map((s) => ({
             weight_kg: s.weight_kg,
@@ -256,8 +269,12 @@ async function TodayBody({ userId, today }: { userId: string; today: Date }) {
       },
     );
 
+    // A "resolved" exercise is one that's either fully logged OR explicitly
+    // skipped — both stop blocking the workout from reaching 100%.
     const completedExerciseCount = planFlowItems.filter(
-      (it) => it.doneSets.length >= it.targetSets,
+      (it) =>
+        skippedSet.has(it.planExerciseId) ||
+        it.doneSets.length >= it.targetSets,
     ).length;
 
     const totalKg = setsRows.reduce((s, r) => s + r.weight_kg * r.reps, 0);
@@ -431,6 +448,7 @@ async function TodayBody({ userId, today }: { userId: string; today: Date }) {
           sessionId={currentSession.id}
           planDayId={planDay.id}
           items={planFlowItems}
+          skippedExerciseIds={Array.from(skippedSet)}
           catalog={catalog.map((ex) => ({
             id: ex.id,
             name: ex.name,

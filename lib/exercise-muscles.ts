@@ -59,14 +59,21 @@ const EXERCISE_MUSCLE_DETAIL: Record<string, string[]> = {
 };
 
 /**
- * Returns the rich Russian muscle labels for an exercise. Falls back to
- * the basic English-to-Russian MUSCLE_LABELS translation of `muscle_groups`
- * (used for custom exercises that aren't in the system seed).
+ * Returns the rich Russian sub-muscle labels for an exercise.
+ *
+ * Priority:
+ *  1. `dbSubMuscles` — the `exercises.sub_muscles` column (the +100 library
+ *     and backfilled originals all carry these).
+ *  2. The legacy in-code map (kept so nothing regresses before the migration
+ *     is applied).
+ *  3. Basic English→Russian translation of `muscle_groups` (custom exercises).
  */
 export function getExerciseMuscleLabels(
   exerciseName: string,
   fallbackMuscleGroups: string[],
+  dbSubMuscles?: string[] | null,
 ): string[] {
+  if (dbSubMuscles && dbSubMuscles.length > 0) return dbSubMuscles;
   const detail = EXERCISE_MUSCLE_DETAIL[exerciseName];
   if (detail) return detail;
   return fallbackMuscleGroups.map((g) => MUSCLE_LABELS[g as MuscleGroup] ?? g);

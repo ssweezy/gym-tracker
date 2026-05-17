@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Check, Timer, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Stepper } from '@/components/ui/stepper';
+import { WeightField } from './WeightField';
 import { Toggle } from '@/components/ui/toggle';
 import { SuggestedTarget, type SuggestedTargetData } from './SuggestedTarget';
 import { useRestTimer } from './RestTimerContext';
@@ -208,14 +209,12 @@ export function SetLogger({
             <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">
               Вес
             </div>
-            <div className="mt-2 flex justify-center">
-              <Stepper
+            <div className="mt-3">
+              <WeightField
                 value={weight}
                 onChange={setWeight}
-                step={increment_kg}
-                precision={1}
-                min={0}
-                unit="кг"
+                defaultStep={increment_kg}
+                exerciseId={exerciseId}
               />
             </div>
           </div>

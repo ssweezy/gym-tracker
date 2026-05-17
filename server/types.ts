@@ -15,6 +15,17 @@ export interface LogSetInput {
   rpe?: number;
 }
 
+/**
+ * Per-session ad-hoc state stored in `sessions.meta` (jsonb). Keyed by
+ * `plan_exercises.id` (stable for the life of the plan day).
+ */
+export interface SessionMeta {
+  /** plan_exercise ids the user marked "не выполнено". */
+  skipped?: string[];
+  /** plan_exercise id → user-overridden target set count for this session. */
+  setOverrides?: Record<string, number>;
+}
+
 export type PlanPreset = 'fullbody3' | 'upper_lower' | 'split3';
 
 export type PlanDayInsert = Omit<TablesInsert<'plan_days'>, 'plan_id'>;

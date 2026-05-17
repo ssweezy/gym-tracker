@@ -2,7 +2,16 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, ChevronRight, Plus, Search, Trophy } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  Minus,
+  Plus,
+  RotateCcw,
+  Search,
+  SkipForward,
+  Trophy,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Reveal, Stagger } from '@/components/motion/stagger';
 import { Sheet } from '@/components/ui/sheet';
@@ -13,8 +22,13 @@ import { SetLogger, type PendingSet, type PersonalBestSummary } from './SetLogge
 import { LoggedSetsList } from './LoggedSetsList';
 import { QuickAddSetSheet } from './QuickAddSetSheet';
 import { addExerciseToPlanDay } from '@/server/plan-actions';
+import {
+  setSkippedExercise,
+  setExerciseSetsOverride,
+} from '@/server/session-meta';
 import { REP_RANGES, type RepCategory, type Reasoning } from '@/lib/progression';
 import { MUSCLE_LABELS, type MuscleGroup } from '@/lib/volume';
+import { tapSoft } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 
 interface CatalogExercise {
@@ -62,6 +76,8 @@ interface PlanExerciseFlowProps {
   catalog?: CatalogExercise[];
   /** Exercise ids already in the plan_day — hidden from the picker. */
   existingExerciseIds?: string[];
+  /** plan_exercise ids the user marked "не выполнено" (from session.meta). */
+  skippedExerciseIds?: string[];
 }
 
 function categoryShort(cat: RepCategory): { label: string; range: string; color: 'crimson' | 'green' | 'gray' } {
@@ -90,10 +106,12 @@ function CategoryBadge({ category }: { category: RepCategory }) {
 }
 
 /**
- * Renders the per-exercise cards for an in-progress plan workout. The user
- * advances explicitly via the "Готово" button on the SetLogger — sets past
- * `target_sets` don't auto-collapse the card. Manually-finished exercises
- * stay visible with a per-set list and a "+" button for ad-hoc extra sets.
+ * Renders the per-exercise cards for an in-progress plan workout.
+ *
+ * The expanded ("active") card is normally the first unresolved exercise,
+ * but tapping ANY collapsed card jumps straight to it — order is not
+ * enforced. Each exercise can be marked «не выполнено» (skipped, persisted
+ * in session.meta) and its target set count can be changed mid-workout.
  */
 export function PlanExerciseFlow({
   sessionId,
@@ -101,9 +119,11 @@ export function PlanExerciseFlow({
   planDayId,
   catalog,
   existingExerciseIds,
+  skippedExerciseIds,
 }: PlanExerciseFlowProps) {
   const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
+  const [, startMeta] = useTransition();
   const [finishedIds, setFinishedIds] = useState<Set<string>>(() => {
     // Initial seed: any exercise that already meets its target on server load
     // before the first under-target exercise is considered finished. Anything
@@ -120,25 +140,85 @@ export function PlanExerciseFlow({
     }
     return seed;
   });
+  const [skipped, setSkipped] = useState<Set<string>>(
+    () => new Set(skippedExerciseIds ?? []),
+  );
+  // Explicit user tap — overrides the natural next-up exercise.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Local set-count overrides for instant feedback; also persisted server-side.
+  const [overrides, setOverrides] = useState<Map<string, number>>(new Map());
   const [quickAddFor, setQuickAddFor] = useState<string | null>(null);
 
-  const activeId = useMemo(() => {
+  const effTarget = (it: PlanExerciseFlowItem) =>
+    overrides.get(it.planExerciseId) ?? it.targetSets;
+
+  const firstUnresolvedId = useMemo(() => {
     for (const it of items) {
-      if (!finishedIds.has(it.planExerciseId)) return it.planExerciseId;
+      if (skipped.has(it.planExerciseId)) continue;
+      if (finishedIds.has(it.planExerciseId)) continue;
+      return it.planExerciseId;
     }
     return null;
-  }, [items, finishedIds]);
+  }, [items, finishedIds, skipped]);
 
-  const completedCount = items.filter((it) => finishedIds.has(it.planExerciseId)).length;
+  const activeId =
+    selectedId && !skipped.has(selectedId) ? selectedId : firstUnresolvedId;
+
+  const resolvedCount = items.filter(
+    (it) =>
+      skipped.has(it.planExerciseId) || finishedIds.has(it.planExerciseId),
+  ).length;
+
+  function selectExercise(id: string) {
+    tapSoft();
+    setSelectedId(id);
+  }
 
   function markFinished(id: string) {
-    setFinishedIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
+    setFinishedIds((prev) => new Set(prev).add(id));
+    setSelectedId((cur) => (cur === id ? null : cur));
     // Let the server recompute (e.g., session stats, next-exercise suggestion).
     router.refresh();
+  }
+
+  function toggleSkip(it: PlanExerciseFlowItem) {
+    const willSkip = !skipped.has(it.planExerciseId);
+    tapSoft();
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      if (willSkip) next.add(it.planExerciseId);
+      else next.delete(it.planExerciseId);
+      return next;
+    });
+    // Skipping the open card → fall back to next-up. Un-skipping → open it.
+    setSelectedId((cur) => {
+      if (willSkip) return cur === it.planExerciseId ? null : cur;
+      return it.planExerciseId;
+    });
+    startMeta(async () => {
+      const res = await setSkippedExercise(
+        sessionId,
+        it.planExerciseId,
+        willSkip,
+      );
+      if (res.error) toast.error(res.error);
+      router.refresh();
+    });
+  }
+
+  function changeTarget(it: PlanExerciseFlowItem, next: number) {
+    const clamped = Math.max(1, Math.min(20, next));
+    if (clamped === effTarget(it)) return;
+    tapSoft();
+    setOverrides((prev) => new Map(prev).set(it.planExerciseId, clamped));
+    startMeta(async () => {
+      const res = await setExerciseSetsOverride(
+        sessionId,
+        it.planExerciseId,
+        clamped,
+      );
+      if (res.error) toast.error(res.error);
+    });
   }
 
   function openQuickAdd(id: string) {
@@ -152,22 +232,53 @@ export function PlanExerciseFlow({
           Упражнения
         </h3>
         <span className="text-[12px] text-text-tertiary tabular-nums">
-          {completedCount} из {items.length}
+          {resolvedCount} из {items.length}
         </span>
       </Reveal>
 
       <Stagger className="mt-3 space-y-2">
         {items.map((it) => {
-          const isFinished = finishedIds.has(it.planExerciseId);
-          const isActive = !isFinished && it.planExerciseId === activeId;
-          const isPending = !isFinished && !isActive;
+          const isSkipped = skipped.has(it.planExerciseId);
+          const isActive = !isSkipped && it.planExerciseId === activeId;
+          const isFinished =
+            !isSkipped && !isActive && finishedIds.has(it.planExerciseId);
+          const target = effTarget(it);
+
+          if (isSkipped) {
+            return (
+              <Reveal key={it.planExerciseId}>
+                <button
+                  type="button"
+                  onClick={() => toggleSkip(it)}
+                  className="flex w-full items-center gap-3.5 rounded-2xl bg-white/[0.02] px-4 py-3.5 text-left opacity-70 transition-opacity active:opacity-100"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.06]">
+                    <SkipForward size={15} className="text-text-tertiary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate font-medium text-text-tertiary line-through decoration-text-tertiary/40">
+                      {it.exerciseName}
+                    </div>
+                    <div className="mt-0.5 text-[11.5px] text-text-tertiary">
+                      Пропущено · нажмите, чтобы выполнить
+                    </div>
+                  </div>
+                  <RotateCcw size={15} className="shrink-0 text-text-tertiary" />
+                </button>
+              </Reveal>
+            );
+          }
 
           if (isFinished) {
             const lastSet = it.doneSets[it.doneSets.length - 1];
             return (
               <Reveal key={it.planExerciseId}>
                 <div className="rounded-2xl bg-white/[0.025] px-4 py-3.5">
-                  <div className="flex items-center gap-3.5">
+                  <button
+                    type="button"
+                    onClick={() => selectExercise(it.planExerciseId)}
+                    className="flex w-full items-center gap-3.5 text-left active:opacity-80"
+                  >
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-green/15">
                       <Check size={16} strokeWidth={2.8} className="text-accent-green" />
                     </div>
@@ -180,7 +291,8 @@ export function PlanExerciseFlow({
                         {lastSet ? ` · ${lastSet.reps} × ${lastSet.weight_kg} кг` : ''}
                       </div>
                     </div>
-                  </div>
+                    <ChevronRight size={16} className="shrink-0 text-text-tertiary" />
+                  </button>
                   <LoggedSetsList
                     sets={it.doneSets.map((s) => ({
                       weight_kg: s.weight_kg,
@@ -197,11 +309,45 @@ export function PlanExerciseFlow({
           if (isActive) {
             return (
               <Reveal key={it.planExerciseId}>
+                {/* Mid-workout controls: change target sets, mark skipped. */}
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="flex items-center gap-0.5 rounded-2xl bg-white/[0.04] p-1">
+                    <button
+                      type="button"
+                      onClick={() => changeTarget(it, target - 1)}
+                      disabled={target <= 1}
+                      aria-label="Меньше подходов"
+                      className="flex h-8 w-8 items-center justify-center rounded-xl text-text-secondary active:scale-90 disabled:opacity-30 transition-transform"
+                    >
+                      <Minus size={15} strokeWidth={2.6} />
+                    </button>
+                    <span className="min-w-[4.25rem] text-center text-[12.5px] font-semibold tabular-nums text-text-secondary">
+                      {target} подх.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => changeTarget(it, target + 1)}
+                      disabled={target >= 20}
+                      aria-label="Больше подходов"
+                      className="flex h-8 w-8 items-center justify-center rounded-xl text-text-secondary active:scale-90 disabled:opacity-30 transition-transform"
+                    >
+                      <Plus size={15} strokeWidth={2.6} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleSkip(it)}
+                    className="ml-auto flex items-center gap-1.5 rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-[12.5px] font-semibold text-text-secondary active:scale-[0.97] transition-transform"
+                  >
+                    <SkipForward size={13} strokeWidth={2.4} />
+                    Не выполнено
+                  </button>
+                </div>
                 <SetLogger
                   exerciseName={it.exerciseName}
                   exerciseId={it.exerciseId}
                   category={it.category}
-                  totalSets={it.targetSets}
+                  totalSets={target}
                   doneSets={it.doneSets}
                   sessionId={sessionId}
                   increment_kg={it.incrementKg}
@@ -213,13 +359,17 @@ export function PlanExerciseFlow({
             );
           }
 
-          // pending
+          // pending — tap to jump straight to this exercise
           const cat = categoryShort(it.category);
           return (
             <Reveal key={it.planExerciseId}>
-              <div className="flex w-full items-center gap-3.5 rounded-2xl bg-white/[0.025] px-4 py-3.5 text-left">
+              <button
+                type="button"
+                onClick={() => selectExercise(it.planExerciseId)}
+                className="flex w-full items-center gap-3.5 rounded-2xl bg-white/[0.025] px-4 py-3.5 text-left active:bg-white/[0.04] transition-colors"
+              >
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] text-[12.5px] font-semibold tabular-nums text-text-secondary">
-                  {it.targetSets}
+                  {target}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{it.exerciseName}</div>
@@ -238,8 +388,8 @@ export function PlanExerciseFlow({
                     </div>
                   )}
                 </div>
-                <ChevronRight size={18} className="text-text-tertiary" />
-              </div>
+                <ChevronRight size={18} className="shrink-0 text-text-tertiary" />
+              </button>
             </Reveal>
           );
         })}

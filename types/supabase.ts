@@ -49,6 +49,7 @@ export type Database = {
           is_system: boolean | null
           muscle_groups: string[]
           name: string
+          sub_muscles: string[] | null
           technique_tips: string[] | null
           user_id: string | null
         }
@@ -61,6 +62,7 @@ export type Database = {
           is_system?: boolean | null
           muscle_groups: string[]
           name: string
+          sub_muscles?: string[] | null
           technique_tips?: string[] | null
           user_id?: string | null
         }
@@ -73,6 +75,7 @@ export type Database = {
           is_system?: boolean | null
           muscle_groups?: string[]
           name?: string
+          sub_muscles?: string[] | null
           technique_tips?: string[] | null
           user_id?: string | null
         }
@@ -210,6 +213,7 @@ export type Database = {
         Row: {
           finished_at: string | null
           id: string
+          meta: Json
           notes: string | null
           plan_day_id: string | null
           started_at: string
@@ -218,6 +222,7 @@ export type Database = {
         Insert: {
           finished_at?: string | null
           id?: string
+          meta?: Json
           notes?: string | null
           plan_day_id?: string | null
           started_at?: string
@@ -226,6 +231,7 @@ export type Database = {
         Update: {
           finished_at?: string | null
           id?: string
+          meta?: Json
           notes?: string | null
           plan_day_id?: string | null
           started_at?: string

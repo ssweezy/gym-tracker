@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Sheet } from '@/components/ui/sheet';
 import { Stepper } from '@/components/ui/stepper';
+import { WeightField } from './WeightField';
 import { Toggle } from '@/components/ui/toggle';
 import { logSetWithOffline } from '@/lib/pwa/log-set';
 import { useOfflineQueue } from '@/components/pwa/OfflineQueueProvider';
@@ -93,14 +94,12 @@ export function QuickAddSetSheet({
           <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">
             Вес
           </div>
-          <div className="mt-2 flex justify-center">
-            <Stepper
+          <div className="mt-3">
+            <WeightField
               value={weight}
               onChange={setWeight}
-              step={incrementKg}
-              precision={1}
-              min={0}
-              unit="кг"
+              defaultStep={incrementKg}
+              exerciseId={exerciseId}
             />
           </div>
         </div>

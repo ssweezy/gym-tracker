@@ -60,6 +60,14 @@ function applyListFilters(
           if (muscleMatches.has(m)) return true;
         }
       }
+      // Match the precise Russian sub-muscle tags, e.g. typing «задняя
+      // дельта» or «камбаловидная» finds the right exercises directly.
+      const subMuscles = (ex as { sub_muscles?: string[] | null }).sub_muscles;
+      if (subMuscles) {
+        for (const s of subMuscles) {
+          if (s.toLowerCase().includes(trimmed)) return true;
+        }
+      }
       return false;
     });
   }

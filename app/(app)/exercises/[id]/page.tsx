@@ -190,7 +190,11 @@ export default async function ExerciseDetailPage({ params }: PageProps) {
           Целевые мышцы
         </h2>
         <ul className="mt-3 space-y-1.5">
-          {getExerciseMuscleLabels(ex.name, ex.muscle_groups).map((label) => (
+          {getExerciseMuscleLabels(
+            ex.name,
+            ex.muscle_groups,
+            (ex as { sub_muscles?: string[] | null }).sub_muscles,
+          ).map((label) => (
             <li
               key={label}
               className="flex items-center gap-2.5 rounded-xl bg-white/[0.025] px-3.5 py-2.5"
