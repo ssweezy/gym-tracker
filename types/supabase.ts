@@ -215,6 +215,30 @@ export type Database = {
         }
         Relationships: []
       }
+      seasons: {
+        Row: {
+          ended_at: string | null
+          id: string
+          name: string
+          started_at: string
+          user_id: string
+        }
+        Insert: {
+          ended_at?: string | null
+          id?: string
+          name: string
+          started_at?: string
+          user_id: string
+        }
+        Update: {
+          ended_at?: string | null
+          id?: string
+          name?: string
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       sessions: {
         Row: {
           finished_at: string | null
@@ -222,6 +246,7 @@ export type Database = {
           meta: Json
           notes: string | null
           plan_day_id: string | null
+          season_id: string | null
           started_at: string
           user_id: string
         }
@@ -231,6 +256,7 @@ export type Database = {
           meta?: Json
           notes?: string | null
           plan_day_id?: string | null
+          season_id?: string | null
           started_at?: string
           user_id: string
         }
@@ -240,6 +266,7 @@ export type Database = {
           meta?: Json
           notes?: string | null
           plan_day_id?: string | null
+          season_id?: string | null
           started_at?: string
           user_id?: string
         }
@@ -249,6 +276,13 @@ export type Database = {
             columns: ["plan_day_id"]
             isOneToOne: false
             referencedRelation: "plan_days"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
             referencedColumns: ["id"]
           },
         ]

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { toSchemaWeekday } from '@/lib/date';
+import { ensureActiveSeason } from './seasons';
 import type { RepCategory } from '@/lib/progression';
 import type { SessionRow } from './types';
 
@@ -82,11 +83,14 @@ export async function startSession(
     if (existing) return { id: existing.id };
   }
 
+  const season = await ensureActiveSeason();
+
   const { data, error } = await supabase
     .from('sessions')
     .insert({
       user_id: user.id,
       plan_day_id: planDayId ?? null,
+      season_id: season?.id ?? null,
     })
     .select('id')
     .single();
@@ -209,11 +213,14 @@ export async function createAdHocSession(
   if (peError) return { error: peError.message };
 
   // 5) Insert session.
+  const season = await ensureActiveSeason();
+
   const { data: session, error: sessionError } = await supabase
     .from('sessions')
     .insert({
       user_id: user.id,
       plan_day_id: planDay.id,
+      season_id: season?.id ?? null,
     })
     .select('id')
     .single();
@@ -237,10 +244,15 @@ export async function getFinishedSessions(
   const since = new Date();
   since.setDate(since.getDate() - sinceDays);
 
+  // Stats are scoped to the active season — past seasons are archived.
+  const season = await ensureActiveSeason();
+  if (!season) return [];
+
   const { data, error } = await supabase
     .from('sessions')
     .select('*')
     .eq('user_id', user.id)
+    .eq('season_id', season.id)
     .not('finished_at', 'is', null)
     .gte('finished_at', since.toISOString())
     .order('finished_at', { ascending: false });

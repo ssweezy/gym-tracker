@@ -20,6 +20,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getActivePlan } from '@/server/plans';
 import { getFinishedSessionsWithDuration } from '@/server/sessions';
 import { listWorkoutHistory } from '@/server/history';
+import { getActiveSeasonId } from '@/server/seasons';
 import { logout } from '@/lib/auth/actions';
 import { Stagger, Reveal } from '@/components/motion/stagger';
 import { InstallAppCard } from '@/components/pwa/InstallAppCard';
@@ -38,7 +39,11 @@ export default async function ProfilePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  // All five top-level queries are independent — fan them out in parallel
+  // Stats are scoped to the active season (adopts legacy sessions on first
+  // call), so a new season starts the counters fresh.
+  const seasonId = (await getActiveSeasonId()) ?? '';
+
+  // All top-level queries are independent — fan them out in parallel
   // instead of waiting for them serially across the Atlantic.
   const [
     profileResp,
@@ -54,11 +59,13 @@ export default async function ProfilePage() {
       .from('sessions')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
+      .eq('season_id', seasonId)
       .not('finished_at', 'is', null),
     supabase
       .from('sets')
-      .select('weight_kg, reps, sessions!inner(user_id)')
-      .eq('sessions.user_id', user.id),
+      .select('weight_kg, reps, sessions!inner(user_id, season_id)')
+      .eq('sessions.user_id', user.id)
+      .eq('sessions.season_id', seasonId),
     // Total cumulative training time across all finished sessions (last 2y
     // window is plenty for the foreseeable user lifetime here).
     getFinishedSessionsWithDuration(365 * 2),

@@ -5,6 +5,8 @@ import { ChevronRight, Clock, Dumbbell, Flame, TrendingUp } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getFinishedSessionsWithDuration } from '@/server/sessions';
 import { listWorkoutHistory } from '@/server/history';
+import { getActiveSeasonId } from '@/server/seasons';
+import { listSeasons } from '@/server/seasons';
 import { WorkoutHistory } from '@/components/progress/WorkoutHistory';
 import { Stagger, Reveal } from '@/components/motion/stagger';
 import {
@@ -84,8 +86,11 @@ export default async function ProgressPage() {
 }
 
 async function WorkoutHistorySection() {
-  const items = await listWorkoutHistory(50);
-  return <WorkoutHistory items={items} />;
+  const [items, seasons] = await Promise.all([
+    listWorkoutHistory(50),
+    listSeasons(),
+  ]);
+  return <WorkoutHistory items={items} seasons={seasons} />;
 }
 
 async function StatsAndHeatmap({
@@ -102,18 +107,24 @@ async function StatsAndHeatmap({
   twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 12 * 7);
   twelveWeeksAgo.setHours(0, 0, 0, 0);
 
+  const seasonId = (await getActiveSeasonId()) ?? '';
+
   // All independent queries run in parallel.
   const [monthlyAll, setsResp, sessionDaysResp] = await Promise.all([
     getFinishedSessionsWithDuration(90),
     supabase
       .from('sets')
-      .select('weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id)')
+      .select(
+        'weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id, season_id)',
+      )
       .eq('sessions.user_id', userId)
+      .eq('sessions.season_id', seasonId)
       .gte('completed_at', twelveWeeksAgo.toISOString()),
     supabase
       .from('sessions')
       .select('started_at')
       .eq('user_id', userId)
+      .eq('season_id', seasonId)
       .not('finished_at', 'is', null)
       .order('started_at', { ascending: false })
       .limit(60),
@@ -278,10 +289,14 @@ async function WorkingWeights({ userId }: { userId: string }) {
 
   // Re-fetch the sets window for working-weight aggregation. Suspense lets
   // this run in parallel with `StatsAndHeatmap` instead of blocking it.
+  const seasonId = (await getActiveSeasonId()) ?? '';
   const { data: rawSets } = await supabase
     .from('sets')
-    .select('weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id)')
+    .select(
+      'weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id, season_id)',
+    )
     .eq('sessions.user_id', userId)
+    .eq('sessions.season_id', seasonId)
     .gte('completed_at', twelveWeeksAgo.toISOString());
 
   const sets = rawSets ?? [];

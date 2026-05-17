@@ -38,6 +38,38 @@ export interface WorkoutHistoryItem {
   exercises: string[];
 }
 
+export interface SeasonSummary {
+  id: string;
+  name: string;
+  started_at: string;
+  ended_at: string | null;
+  is_active: boolean;
+  workout_count: number;
+}
+
+export interface WorkoutDetailSet {
+  weight_kg: number;
+  reps: number;
+  is_first_set: boolean;
+}
+
+export interface WorkoutDetailExercise {
+  exercise_id: string;
+  name: string;
+  sets: WorkoutDetailSet[];
+}
+
+export interface WorkoutDetail {
+  id: string;
+  title: string;
+  started_at: string;
+  finished_at: string | null;
+  duration_min: number;
+  set_count: number;
+  tonnage_kg: number;
+  exercises: WorkoutDetailExercise[];
+}
+
 export type PlanPreset = 'fullbody3' | 'upper_lower' | 'split3';
 
 export type PlanDayInsert = Omit<TablesInsert<'plan_days'>, 'plan_id'>;
