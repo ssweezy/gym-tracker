@@ -50,8 +50,8 @@ export function DeleteExerciseButton({ exerciseId, exerciseName }: Props) {
           Удалить «{exerciseName}»?
         </div>
         <div className="mt-1.5 text-[12.5px] text-text-tertiary">
-          Действие необратимо. Если упражнение есть в плане или истории
-          тренировок — сначала уберите его оттуда, иначе удаление не пройдёт.
+          Действие необратимо. Упражнение будет убрано из всех дней плана, а
+          его записанные подходы (история и личный рекорд) — удалены.
         </div>
         <div className="mt-4 flex gap-2">
           <button

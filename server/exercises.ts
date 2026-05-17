@@ -210,18 +210,36 @@ export async function deleteCustomExercise(
   if (ex.is_system) return { error: 'Системное упражнение нельзя удалить' };
   if (ex.user_id !== user.id) return { error: 'Не ваше упражнение' };
 
+  // The DB blocks deleting an exercise that's still referenced (on delete
+  // restrict) from plan days or logged sets. For the user's OWN custom
+  // exercise we cascade those refs first — RLS already scopes both tables to
+  // this user, so this only ever touches their own plan/history rows.
+  const { error: peErr } = await supabase
+    .from('plan_exercises')
+    .delete()
+    .eq('exercise_id', id);
+  if (peErr) return { error: peErr.message };
+
+  const { error: setsErr } = await supabase
+    .from('sets')
+    .delete()
+    .eq('exercise_id', id);
+  if (setsErr) return { error: setsErr.message };
+
   const { error } = await supabase.from('exercises').delete().eq('id', id);
   if (error) {
-    // FK violation when the exercise is referenced from plan_exercises or sets.
     if (/foreign key|violates|restrict/i.test(error.message)) {
       return {
         error:
-          'Упражнение есть в плане или истории тренировок — сначала уберите его оттуда.',
+          'Не удалось удалить: упражнение всё ещё используется. Попробуйте ещё раз.',
       };
     }
     return { error: error.message };
   }
 
   revalidatePath('/exercises');
+  revalidatePath('/plan');
+  revalidatePath('/progress');
+  revalidatePath('/');
   return {};
 }
