@@ -1,7 +1,7 @@
 /* Gym Tracker service worker — MVP app-shell + offline navigation fallback */
 /* eslint-disable */
 
-const CACHE_VERSION = 'gym-v2';
+const CACHE_VERSION = 'gym-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -91,10 +91,12 @@ self.addEventListener('fetch', (event) => {
           return res;
         })
         .catch(async () => {
-          const cached = await caches.match(req);
+          // ONLY ever return the exact cached page for THIS url. Never fall
+          // back to the cached home shell — doing so made every route
+          // (e.g. /plan, /exercises/:id) render the «Сегодня» page whenever
+          // a navigation fetch failed or the route wasn't cached yet.
+          const cached = await caches.match(req, { ignoreSearch: true });
           if (cached) return cached;
-          const shell = await caches.match('/');
-          if (shell) return shell;
           const offline = await caches.match('/offline.html');
           if (offline) return offline;
           return new Response('Offline', {
