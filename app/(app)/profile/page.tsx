@@ -1,15 +1,19 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
   Calendar,
   ChevronRight,
   Clock,
   Download,
+  Dumbbell,
+  Flame,
+  History,
   Info,
+  Layers,
   LogOut,
-  Ruler,
-  Scale,
   Settings,
   Target,
+  Timer,
   Trophy,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
@@ -24,11 +28,6 @@ const GOAL_LABEL: Record<string, string> = {
   hypertrophy: 'Гипертрофия',
   strength: 'Сила',
   endurance: 'Выносливость',
-};
-
-const UNIT_LABEL: Record<string, string> = {
-  metric: 'Метрические',
-  imperial: 'Имперские',
 };
 
 export default async function ProfilePage() {
@@ -78,15 +77,43 @@ export default async function ProfilePage() {
       ? `${totalMinutes} мин`
       : `${totalHours.toFixed(1).replace('.', ',')} ч`;
 
-  const displayName = profile?.display_name || 'Спортсмен';
-  const goal = profile?.goal ? (GOAL_LABEL[profile.goal] ?? profile.goal) : '—';
-  const unit = profile?.unit_system
-    ? (UNIT_LABEL[profile.unit_system] ?? profile.unit_system)
-    : 'Метрические';
-  const bodyweight = profile?.bodyweight_kg
-    ? `${profile.bodyweight_kg.toString().replace('.', ',')} кг`
+  const totalSets = (setsAgg ?? []).length;
+  const finishedCount = sessionCount ?? 0;
+  const avgMin =
+    finishedCount > 0 ? Math.round(totalMinutes / finishedCount) : 0;
+
+  const finishedDates = finishedWithDuration
+    .map((s) => new Date(s.finished_at))
+    .sort((a, b) => b.getTime() - a.getTime());
+  const lastWorkout = finishedDates[0] ?? null;
+  const lastWorkoutLabel = lastWorkout
+    ? lastWorkout.toLocaleDateString('ru-RU', {
+        day: 'numeric',
+        month: 'long',
+      })
     : '—';
 
+  // Consecutive-day streak ending today or yesterday.
+  const dayKeys = new Set(
+    finishedDates.map((d) => {
+      const x = new Date(d);
+      x.setHours(0, 0, 0, 0);
+      return x.getTime();
+    }),
+  );
+  let streak = 0;
+  {
+    const cur = new Date();
+    cur.setHours(0, 0, 0, 0);
+    if (!dayKeys.has(cur.getTime())) cur.setDate(cur.getDate() - 1);
+    while (dayKeys.has(cur.getTime())) {
+      streak += 1;
+      cur.setDate(cur.getDate() - 1);
+    }
+  }
+
+  const displayName = profile?.display_name || 'Спортсмен';
+  const goal = profile?.goal ? (GOAL_LABEL[profile.goal] ?? profile.goal) : '—';
   const joined = profile?.created_at
     ? new Date(profile.created_at)
     : new Date();
@@ -98,7 +125,11 @@ export default async function ProfilePage() {
       label: 'Тренировок',
       color: 'text-text-primary',
     },
-    { value: '0', label: 'Серия дн.', color: 'text-accent-crimson' },
+    {
+      value: String(streak),
+      label: 'Серия дн.',
+      color: 'text-accent-crimson',
+    },
     {
       value: tonnage > 0 ? tonnage.toFixed(1).replace('.', ',') : '0',
       label: 'Тонн',
@@ -108,9 +139,9 @@ export default async function ProfilePage() {
 
   const trainingRows = [
     {
-      icon: Target,
-      label: 'Цель',
-      value: goal,
+      icon: Dumbbell,
+      label: 'Всего тренировок',
+      value: String(finishedCount),
       iconBg: 'rgba(255,45,85,0.15)',
       iconColor: '#FF2D55',
     },
@@ -122,16 +153,30 @@ export default async function ProfilePage() {
       iconColor: '#FF9500',
     },
     {
-      icon: Scale,
-      label: 'Вес тела',
-      value: bodyweight,
+      icon: Timer,
+      label: 'Средняя тренировка',
+      value: avgMin > 0 ? `${avgMin} мин` : '—',
+      iconBg: 'rgba(10,132,255,0.15)',
+      iconColor: '#0A84FF',
+    },
+    {
+      icon: Layers,
+      label: 'Всего подходов',
+      value: String(totalSets),
       iconBg: 'rgba(52,199,89,0.15)',
       iconColor: '#34C759',
     },
     {
-      icon: Ruler,
-      label: 'Единицы',
-      value: unit,
+      icon: Flame,
+      label: 'Серия',
+      value: streak > 0 ? `${streak} дн.` : '—',
+      iconBg: 'rgba(255,45,85,0.15)',
+      iconColor: '#FF2D55',
+    },
+    {
+      icon: History,
+      label: 'Последняя тренировка',
+      value: lastWorkoutLabel,
       iconBg: 'rgba(142,142,147,0.2)',
       iconColor: '#A1A1A6',
     },
@@ -204,9 +249,13 @@ export default async function ProfilePage() {
               <div className="mt-0.5 text-[13.5px] text-text-secondary">{goal}</div>
               <div className="text-[11.5px] text-text-tertiary">{joinedLabel}</div>
             </div>
-            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+            <Link
+              href="/profile/settings"
+              aria-label="Настройки"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] active:scale-90 transition-transform"
+            >
               <Settings size={16} className="text-text-secondary" strokeWidth={2.2} />
-            </button>
+            </Link>
           </div>
 
           <div className="mt-5 grid grid-cols-3 gap-2 rounded-[18px] bg-black/30 p-2.5">
@@ -232,7 +281,10 @@ export default async function ProfilePage() {
 
       {plan && (
         <Reveal className="mt-3">
-          <div className="block w-full overflow-hidden rounded-[22px] bg-bg-elevated p-5 text-left">
+          <Link
+            href="/plan"
+            className="block w-full overflow-hidden rounded-[22px] bg-bg-elevated p-5 text-left active:scale-[0.99] transition-transform"
+          >
             <div className="flex items-center justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -245,12 +297,21 @@ export default async function ProfilePage() {
                   {plan.plan.name}
                 </h3>
                 <div className="mt-1 text-[12px] text-text-tertiary">
-                  {plan.days.filter((d) => !d.is_rest).length} тренировки в неделю
+                  {plan.days.filter((d) => !d.is_rest).length} трен. в неделю ·{' '}
+                  {plan.days.reduce(
+                    (s, d) =>
+                      s +
+                      (d.is_rest
+                        ? 0
+                        : d.exercises.reduce((x, pe) => x + pe.target_sets, 0)),
+                    0,
+                  )}{' '}
+                  подходов
                 </div>
               </div>
               <ChevronRight size={18} className="text-text-tertiary shrink-0" />
             </div>
-          </div>
+          </Link>
         </Reveal>
       )}
 
