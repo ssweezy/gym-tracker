@@ -1,5 +1,6 @@
 'use server';
 
+import { headers } from 'next/headers';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
@@ -16,10 +17,19 @@ export async function requestPasswordReset(
   }
 
   const supabase = await createClient();
-  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+
+  // The email link itself is built by the Supabase "Reset Password" template
+  // from Site URL + token_hash (see app/auth/confirm/route.ts). redirectTo is
+  // still sent so the URL is validated against the Auth allow-list; it's
+  // derived from the incoming request so it can never point at localhost in
+  // production.
+  const h = await headers();
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const proto = h.get('x-forwarded-proto') ?? 'https';
+  const origin = host ? `${proto}://${host}` : process.env.NEXT_PUBLIC_SITE_URL;
 
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: `${origin}/auth/callback?next=/account/recover`,
+    redirectTo: origin ? `${origin}/auth/confirm?next=/account/recover` : undefined,
   });
 
   // Don't leak existence of the account. Always respond with success.

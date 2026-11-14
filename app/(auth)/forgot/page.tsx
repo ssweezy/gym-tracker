@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Check } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,6 +15,13 @@ const PRIMARY_GLOW = '0 8px 24px -8px rgba(52,199,89,0.45)';
 export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [pending, start] = useTransition();
+
+  // /auth/confirm sends users back here when the email link is invalid/used.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('error') === 'expired') {
+      toast.error('Ссылка устарела или уже использована. Запросите новую.');
+    }
+  }, []);
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

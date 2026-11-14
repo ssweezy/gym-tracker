@@ -23,13 +23,17 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isAuthRoute = path === '/login' || path === '/forgot' || path.startsWith('/auth');
-  const isPublic = isAuthRoute || path === '/onboarding' || path.startsWith('/mockup');
+  // Login/forgot bounce signed-in users home. /auth/* (email-link handlers)
+  // must always run — a recovery link opened while signed in still has to
+  // verify its token and land on /account/recover.
+  const isLoginPage = path === '/login' || path === '/forgot';
+  const isPublic =
+    isLoginPage || path.startsWith('/auth') || path === '/onboarding' || path.startsWith('/mockup');
 
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
-  if (user && isAuthRoute) {
+  if (user && isLoginPage) {
     return NextResponse.redirect(new URL('/', request.url));
   }
   return response;
