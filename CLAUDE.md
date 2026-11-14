@@ -29,6 +29,8 @@ Supabase (cloud, linked via `SUPABASE_PROJECT_REF` / `SUPABASE_ACCESS_TOKEN` in 
 npx supabase db push                                                  # apply supabase/migrations/*
 npx supabase gen types typescript --project-id <ref> > types/supabase.ts   # regenerate after schema changes
 ```
+Production: **https://gym-app-karaf.vercel.app** (Vercel deploys on push to `main`). The GitHub repo's homepage link `gym-tracker-omega-one.vercel.app` is an unrelated older Vite app. Supabase Auth: Site URL = the production domain, email/password only (Google disabled); the "Reset Password" email template links to `{{ .SiteURL }}/auth/confirm?token_hash=…&type=recovery&next=/account/recover` (handled by `app/auth/confirm/route.ts`). Auth settings live in the Supabase dashboard / Management API, not in `supabase/config.toml`. Default Supabase mailer is limited to ~2 emails/hour.
+
 Schema changes = new timestamped file in `supabase/migrations/` (never edit applied ones), then regenerate `types/supabase.ts`.
 
 ## Architecture
