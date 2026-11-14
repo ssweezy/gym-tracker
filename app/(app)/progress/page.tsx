@@ -283,12 +283,10 @@ async function StatsAndHeatmap({
 
 async function WorkingWeights({ userId }: { userId: string }) {
   const supabase = await createClient();
-  const twelveWeeksAgo = new Date();
-  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 12 * 7);
-  twelveWeeksAgo.setHours(0, 0, 0, 0);
 
-  // Re-fetch the sets window for working-weight aggregation. Suspense lets
-  // this run in parallel with `StatsAndHeatmap` instead of blocking it.
+  // Whole active season, no time window: a working weight doesn't expire
+  // after a training break (stats/heatmap above stay 12-week scoped).
+  // Runs in its own Suspense boundary, parallel to `StatsAndHeatmap`.
   const seasonId = (await getActiveSeasonId()) ?? '';
   const { data: rawSets } = await supabase
     .from('sets')
@@ -296,8 +294,7 @@ async function WorkingWeights({ userId }: { userId: string }) {
       'weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id, season_id)',
     )
     .eq('sessions.user_id', userId)
-    .eq('sessions.season_id', seasonId)
-    .gte('completed_at', twelveWeeksAgo.toISOString());
+    .eq('sessions.season_id', seasonId);
 
   const sets = rawSets ?? [];
   const byExercise = new Map<string, { maxWeight: number; lastDate: Date }>();
