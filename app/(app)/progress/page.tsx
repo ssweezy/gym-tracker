@@ -284,34 +284,31 @@ async function StatsAndHeatmap({
 async function WorkingWeights({ userId }: { userId: string }) {
   const supabase = await createClient();
 
-  // Whole active season, no time window: a working weight doesn't expire
-  // after a training break (stats/heatmap above stay 12-week scoped).
+  // Current working weight = the most recent *first* set per exercise — the
+  // set double progression decides on (same as «Текущий» on /progress/[id]).
+  // Whole active season, no time window: it doesn't expire after a break.
   // Runs in its own Suspense boundary, parallel to `StatsAndHeatmap`.
   const seasonId = (await getActiveSeasonId()) ?? '';
   const { data: rawSets } = await supabase
     .from('sets')
-    .select(
-      'weight_kg, reps, completed_at, exercise_id, sessions!inner(user_id, season_id)',
-    )
+    .select('weight_kg, completed_at, exercise_id, sessions!inner(user_id, season_id)')
     .eq('sessions.user_id', userId)
-    .eq('sessions.season_id', seasonId);
+    .eq('sessions.season_id', seasonId)
+    .eq('is_first_set', true)
+    .not('completed_at', 'is', null)
+    .order('completed_at', { ascending: false });
 
-  const sets = rawSets ?? [];
-  const byExercise = new Map<string, { maxWeight: number; lastDate: Date }>();
-  for (const s of sets) {
-    if (!s.completed_at) continue;
-    const cur = byExercise.get(s.exercise_id);
-    if (!cur || s.weight_kg > cur.maxWeight) {
-      byExercise.set(s.exercise_id, {
-        maxWeight: s.weight_kg,
-        lastDate: new Date(s.completed_at),
-      });
-    }
+  // Rows are newest-first, so the first row seen per exercise is its latest.
+  const byExercise = new Map<string, { weight: number; lastDate: Date }>();
+  for (const s of rawSets ?? []) {
+    if (!s.completed_at || byExercise.has(s.exercise_id)) continue;
+    byExercise.set(s.exercise_id, {
+      weight: s.weight_kg,
+      lastDate: new Date(s.completed_at),
+    });
   }
-  const topExerciseIds = [...byExercise.entries()]
-    .sort((a, b) => b[1].maxWeight - a[1].maxWeight)
-    .slice(0, 6)
-    .map(([id]) => id);
+  // Most recently trained first.
+  const topExerciseIds = [...byExercise.keys()].slice(0, 6);
 
   const exerciseNames = new Map<string, string>();
   if (topExerciseIds.length > 0) {
@@ -327,7 +324,7 @@ async function WorkingWeights({ userId }: { userId: string }) {
       <div className="overflow-hidden rounded-[22px] bg-bg-elevated">
         {topExerciseIds.length === 0 ? (
           <div className="px-4 py-10 text-center text-[13px] text-text-tertiary">
-            Пока нет записей. Запиши первый подход — и здесь появятся твои рекорды.
+            Пока нет записей. Запиши первый подход — и здесь появятся твои рабочие веса.
           </div>
         ) : (
           <ul className="divide-y divide-white/[0.04]">
@@ -347,7 +344,7 @@ async function WorkingWeights({ userId }: { userId: string }) {
                         </h3>
                         <div className="mt-1 flex items-baseline gap-2 tabular-nums">
                           <span className="text-[18px] font-semibold leading-none">
-                            {data.maxWeight.toString().replace('.', ',')}
+                            {data.weight.toString().replace('.', ',')}
                             <span className="ml-0.5 text-[11px] text-text-tertiary">
                               кг
                             </span>
